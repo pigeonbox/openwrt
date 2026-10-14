@@ -51,6 +51,22 @@ jobs:
             -X 'github.com/pigeonbox/kit/version.Version=${{ inputs.version || github.ref_name }}' \
             -X 'github.com/pigeonbox/kit/version.BuildCommit=${{ github.sha }}'" \
             -o dist/pigeonbox ./cmd/pigeonbox
+      - name: 随包 p2pc(按矩阵架构下载+sha256 校验;DEPS.env P2PC_REF 钉版)
+        run: |
+          set -euo pipefail
+          ref=$(grep '^P2PC_REF=' DEPS.env | cut -d= -f2 | tr -d ' \r')
+          [ -n "$ref" ] || { echo "DEPS.env 无 P2PC_REF,跳过"; exit 0; }
+          case "${{ matrix.goarch }}" in
+            amd64) triple=x86_64-unknown-linux-gnu ;;
+            arm64) triple=aarch64-unknown-linux-gnu ;;
+          esac
+          base="https://github.com/pigeonbox/p2p/releases/download/${ref}"
+          tmp=$(mktemp -d)
+          curl -fsSL -o "$tmp/checksums.txt" "$base/p2pc-checksums.txt"
+          curl -fsSL -o "$tmp/p2pc-${triple}" "$base/p2pc-${triple}"
+          (cd "$tmp" && grep " p2pc-${triple}\$" checksums.txt | sha256sum -c -)
+          install -m 0755 "$tmp/p2pc-${triple}" dist/p2pc
+          rm -rf "$tmp"
       - uses: actions/setup-node@v6
         with:
           node-version: 22
