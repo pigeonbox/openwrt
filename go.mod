@@ -6,7 +6,7 @@ toolchain go1.26.9
 
 require (
 	github.com/glebarez/go-sqlite v1.21.2
-	github.com/pigeonbox/core v0.21.0
+	github.com/pigeonbox/core v0.21.1
 	github.com/pigeonbox/kit v0.3.1
 	github.com/stretchr/testify v1.12.1
 	go.uber.org/zap v1.27.0
