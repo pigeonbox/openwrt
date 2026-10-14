@@ -11,6 +11,7 @@ PigeonBox（文件快递柜，匿名口令分享文本/文件）的 **OpenWrt / 
 - JWT 密钥自动生成并持久化，开箱即用、重启不失效
 - 配置走 UCI（`/etc/config/pigeonbox`），高级项支持 drop-in `config.yaml`
 - 双架构：`x86_64`（iStoreOS 主流）/ `aarch64_generic`（ARM SBC）
+- 设备直传：ipk/apk 随包 p2pc 二进制（`/usr/bin/p2pc`，DEPS.env `P2PC_REF` 钉版+sha256 校验，`make p2pc` 可单独拉取）；admin「系统配置→P2P」分区热启停联邦与设备直传（standalone 部署专属）
 
 > 内存建议 ≥512MB（Go 服务 + Redis）。纯软路由小内存设备不适用。
 
@@ -31,7 +32,7 @@ iStore → 手动安装 → 粘贴 ipk 下载 URL（本仓 [Releases](https://gi
 
 ```sh
 # x86_64 设备
-wget -O /tmp/pigeonbox.ipk https://github.com/pigeonbox/openwrt/releases/download/v1.14.0/pigeonbox_1.14.0-1_x86_64.ipk
+wget -O /tmp/pigeonbox.ipk https://github.com/pigeonbox/openwrt/releases/download/v1.21.0/pigeonbox_1.21.0-1_x86_64.ipk
 opkg install /tmp/pigeonbox.ipk
 ```
 
@@ -43,7 +44,7 @@ opkg install /tmp/pigeonbox.ipk
 # 1) 预置签名公钥(一次性;否则 apk add 需加 --allow-untrusted)
 wget -O /etc/apk/keys/pigeonbox.pem https://github.com/pigeonbox/openwrt/raw/main/keys/pigeonbox.pem
 # 2) 安装(依赖 redis-server 自动拉取,装后自动启用并启动)
-wget -O /tmp/pigeonbox.apk https://github.com/pigeonbox/openwrt/releases/download/v1.14.0/pigeonbox-1.14.0-r0_x86_64.apk
+wget -O /tmp/pigeonbox.apk https://github.com/pigeonbox/openwrt/releases/download/v1.21.0/pigeonbox-1.21.0-r0_x86_64.apk
 apk add /tmp/pigeonbox.apk
 ```
 
@@ -69,11 +70,11 @@ apk add /tmp/pigeonbox.apk
 | `main.open_upload` | `1` | 允许匿名上传 |
 | `main.admin_password` | 空 | 管理员密码（留空=不改动，首次启动走 `/setup` 向导；非空=口令以本项为准，保存应用后自动重启生效并吊销旧会话） |
 | `main.base_url` | 空 | 站点对外 URL（直链下载/presign 需要，局域网直访可留空） |
-| `redis.enabled` | `1` | 关闭后服务仍可用；core 单机内存模式列车后=进程内 KV（匿名取件可用、重启丢失映射），当前钉版（core v0.13.0）下匿名取件不可用 |
+| `redis.enabled` | `1` | 关闭后服务仍可用；自 core v0.14.0 单机内存模式起=进程内 KV（匿名取件可用、重启丢失映射），当前钉版 core v0.19.0 |
 | `redis.host` / `redis.port` | `127.0.0.1:6379` | Redis 地址（`redis-server` 包默认值） |
 | `redis.password` | 空 | Redis 密码 |
 
-UCI 之外的配置项（S3/OIDC/联邦/mcp 等）：把 [configs/config.yaml](./configs/config.yaml) 复制为 `/etc/pigeonbox/config.yaml` 修改后重启服务即可（UCI 注入的环境变量优先级更高）。完整配置说明见 [server 仓](https://github.com/pigeonbox/server) `configs/` 与 `docs/ENVIRONMENT_VARIABLES.md`。
+UCI 之外的配置项（S3/OIDC/联邦/mcp 等）：把 [configs/config.yaml](./configs/config.yaml) 复制为 `/etc/pigeonbox/config.yaml` 修改后重启服务即可（UCI 注入的环境变量优先级更高）。完整配置说明见 [server 仓](https://github.com/pigeonbox/server) `configs/` 与 [hub 仓](https://github.com/pigeonbox/pigeonbox) `docs/ENVIRONMENT_VARIABLES.md`。
 
 服务管理：
 
