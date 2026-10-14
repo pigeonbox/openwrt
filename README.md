@@ -32,7 +32,7 @@ iStore → 手动安装 → 粘贴 ipk 下载 URL（本仓 [Releases](https://gi
 
 ```sh
 # x86_64 设备
-wget -O /tmp/pigeonbox.ipk https://github.com/pigeonbox/openwrt/releases/download/v1.21.0/pigeonbox_1.21.0-1_x86_64.ipk
+wget -O /tmp/pigeonbox.ipk https://github.com/pigeonbox/openwrt/releases/download/v1.22.0/pigeonbox_1.22.0-1_x86_64.ipk
 opkg install /tmp/pigeonbox.ipk
 ```
 
@@ -44,7 +44,7 @@ opkg install /tmp/pigeonbox.ipk
 # 1) 预置签名公钥(一次性;否则 apk add 需加 --allow-untrusted)
 wget -O /etc/apk/keys/pigeonbox.pem https://github.com/pigeonbox/openwrt/raw/main/keys/pigeonbox.pem
 # 2) 安装(依赖 redis-server 自动拉取,装后自动启用并启动)
-wget -O /tmp/pigeonbox.apk https://github.com/pigeonbox/openwrt/releases/download/v1.21.0/pigeonbox-1.21.0-r0_x86_64.apk
+wget -O /tmp/pigeonbox.apk https://github.com/pigeonbox/openwrt/releases/download/v1.22.0/pigeonbox-1.22.0-r0_x86_64.apk
 apk add /tmp/pigeonbox.apk
 ```
 
@@ -70,7 +70,7 @@ apk add /tmp/pigeonbox.apk
 | `main.open_upload` | `1` | 允许匿名上传 |
 | `main.admin_password` | 空 | 管理员密码（留空=不改动，首次启动走 `/setup` 向导；非空=口令以本项为准，保存应用后自动重启生效并吊销旧会话） |
 | `main.base_url` | 空 | 站点对外 URL（直链下载/presign 需要，局域网直访可留空） |
-| `redis.enabled` | `1` | 关闭后服务仍可用；自 core v0.14.0 单机内存模式起=进程内 KV（匿名取件可用、重启丢失映射），当前钉版 core v0.19.0 |
+| `redis.enabled` | `1` | 关闭后服务仍可用；自 core v0.14.0 单机内存模式起=进程内 KV（匿名取件可用、重启丢失映射），当前钉版 core v0.20.0 |
 | `redis.host` / `redis.port` | `127.0.0.1:6379` | Redis 地址（`redis-server` 包默认值） |
 | `redis.password` | 空 | Redis 密码 |
 
