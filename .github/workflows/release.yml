@@ -86,7 +86,7 @@ jobs:
           # 签名私钥(GH secret,PEM)落盘供 mkpkg --sign-key;公钥 keys/pigeonbox.pem 已入库
           echo "${APK_SIGN_KEY}" > /tmp/apk-sign.key
           APK_SIGN_KEY=/tmp/apk-sign.key ./scripts/build-apk.sh ${{ matrix.arch }} "${VERSION#v}"
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: packages-${{ matrix.arch }}
           path: |
