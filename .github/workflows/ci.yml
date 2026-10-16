@@ -31,7 +31,7 @@ jobs:
         run: |
           VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-            -ldflags="-w -s -X 'github.com/pigeonbox/kit/version.Version=${VERSION}'" \
+            -ldflags="-w -s -X 'github.com/oekit/core/version.Version=${VERSION}'" \
             -o dist/pigeonbox ./cmd/pigeonbox
       - uses: actions/setup-node@v6
         with:
