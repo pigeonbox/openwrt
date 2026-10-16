@@ -7,7 +7,7 @@
 build:            ## 编译本机二进制(dist/pigeonbox,默认 static-dir 指向包内路径)
 	go build -o dist/pigeonbox ./cmd/pigeonbox
 
-p2pc:             ## 下载随包 p2pc(版本=DEPS.env P2PC_REF;缺省跳过,直传优雅降级)
+p2pc:             ## 下载随包 p2pc+p2pcweb(版本=DEPS.env P2PC_REF;缺省跳过,直传优雅降级)
 	@ref=$$(sed -n 's/^P2PC_REF=//p' DEPS.env | tr -d ' \r'); \
 	[ -n "$$ref" ] || { echo "(DEPS.env 无 P2PC_REF,跳过 p2pc)"; exit 0; }; \
 	arch=$$(uname -m); case "$$arch" in x86_64) triple=x86_64-unknown-linux-gnu;; aarch64|arm64) triple=aarch64-unknown-linux-gnu;; *) echo "unsupported: $$arch"; exit 1;; esac; \
@@ -21,7 +21,13 @@ p2pc:             ## 下载随包 p2pc(版本=DEPS.env P2PC_REF;缺省跳过,直
 	  gh release download "$$ref" -R pigeonbox/p2p -p p2pc-checksums.txt -O "$$tmp/checksums.txt" --clobber; \
 	else echo "curl/gh 均失败"; rm -rf "$$tmp"; exit 1; fi; \
 	(cd "$$tmp" && grep " p2pc-$$triple\$$" checksums.txt | shasum -a 256 -c - >/dev/null) || { echo "sha256 校验失败"; rm -rf "$$tmp"; exit 1; }; \
-	install -m 0755 "$$tmp/p2pc-$$triple" dist/p2pc && rm -rf "$$tmp" && echo "✓ p2pc @ $$ref"
+	install -m 0755 "$$tmp/p2pc-$$triple" dist/p2pc && rm -rf "$$tmp" && echo "✓ p2pc @ $$ref"; \
+	if curl -fsSL -m 300 -o "$$tmp/p2pc-web-$$triple" "$$base/p2pc-web-$$triple" 2>/dev/null; then :; \
+	elif command -v gh >/dev/null 2>&1; then \
+	  gh release download "$$ref" -R pigeonbox/p2p -p "p2pc-web-$$triple" -O "$$tmp/p2pc-web-$$triple" --clobber || exit 1; \
+	else echo "p2pc-web: curl/gh 均失败"; rm -rf "$$tmp"; exit 1; fi; \
+	(cd "$$tmp" && grep " p2pc-web-$$triple\$$" checksums.txt | shasum -a 256 -c - >/dev/null) || { echo "p2pc-web sha256 校验失败"; rm -rf "$$tmp"; exit 1; }; \
+	install -m 0755 "$$tmp/p2pc-web-$$triple" dist/p2pcweb && rm -rf "$$tmp" && echo "✓ p2pcweb @ $$ref"
 
 test:
 	go test ./... -race

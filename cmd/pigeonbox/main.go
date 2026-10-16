@@ -24,6 +24,7 @@ import (
 	"github.com/pigeonbox/core/pkg/logger"
 	"github.com/oekit/core/version"
 	"github.com/pigeonbox/openwrt/internal/adminsync"
+	"github.com/pigeonbox/openwrt/internal/beam"
 
 	"go.uber.org/zap"
 )
@@ -103,6 +104,9 @@ func main() {
 		os.Exit(1)
 	}
 	defer bootstrap.Cleanup()
+
+	// 1.5 PigeonBeam 入口(A2):Box 会话守门的 /beam 跳转(独立于业务路由面)。
+	beam.Mount(h)
 
 	// 2. 启动 HTTP 服务。
 	go func() {

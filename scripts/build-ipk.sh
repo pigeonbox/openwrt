@@ -38,8 +38,9 @@ install -d "$DATA/usr/bin" \
 install -m 0755 "$ROOT/dist/pigeonbox" "$DATA/usr/bin/pigeonbox"
 # p2pc 设备直传随包(2026-10-14 P2b):dist/p2pc 存在才装,缺失优雅降级;
 # supervisor 候选查找序含 /usr/bin/p2pc,init 脚本零改动。
-if [ -f "$ROOT/dist/p2pc" ]; then
-	install -m 0755 "$ROOT/dist/p2pc" "$DATA/usr/bin/p2pc"
+# p2pcweb(A2 内嵌)同规则:make p2pc 同批抓取,init beam 段按存在性启动。
+if [ -f "$ROOT/dist/p2pcweb" ]; then
+	install -m 0755 "$ROOT/dist/p2pcweb" "$DATA/usr/bin/p2pcweb"
 fi
 cp -R "$ROOT/dist/www/." "$DATA/usr/share/pigeonbox/www/"
 install -m 0644 "$ROOT/openwrt/pigeonbox.config" "$DATA/etc/config/pigeonbox"

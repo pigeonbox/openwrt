@@ -98,7 +98,13 @@ return view.extend({
 					'href': url,
 					'target': '_blank',
 					'rel': 'noopener'
-				}, [ _('打开 PigeonBox 界面 ↗') ]) : null
+				}, [ _('打开 PigeonBox 界面 ↗') ]) : null,
+				running ? E('a', {
+					'class': 'btn cbi-button cbi-button-action',
+					'href': url + 'beam',
+					'target': '_blank',
+					'rel': 'noopener'
+				}, [ _('设备直传(PigeonBeam)↗') ]) : null
 			])
 		]);
 	},
