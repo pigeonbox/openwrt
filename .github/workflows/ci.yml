@@ -33,7 +33,7 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
             -ldflags="-w -s -X 'github.com/oekit/core/version.Version=${VERSION}'" \
             -o dist/pigeonbox ./cmd/pigeonbox
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - name: web 类型检查(2026-10-09 拆仓:web/ 自包含,frontend-core tgz 钉版)
