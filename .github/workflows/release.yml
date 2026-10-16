@@ -49,7 +49,8 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.goarch }} go build \
             -ldflags="-w -s \
             -X 'github.com/oekit/core/version.Version=${{ inputs.version || github.ref_name }}' \
-            -X 'github.com/oekit/core/version.BuildCommit=${{ github.sha }}'" \
+            -X 'github.com/oekit/core/version.BuildCommit=${{ github.sha }}' \
+            -X 'github.com/oekit/core/version.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)'" \
             -o dist/pigeonbox ./cmd/pigeonbox
       - name: 随包 p2pc(按矩阵架构下载+sha256 校验;DEPS.env P2PC_REF 钉版)
         run: |
