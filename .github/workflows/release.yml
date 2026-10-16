@@ -67,6 +67,10 @@ jobs:
           curl -fsSL -o "$tmp/p2pc-${triple}" "$base/p2pc-${triple}"
           (cd "$tmp" && grep " p2pc-${triple}\$" checksums.txt | sha256sum -c -)
           install -m 0755 "$tmp/p2pc-${triple}" dist/p2pc
+          # p2pcweb(A2 内嵌):同 REF 同 checksums 清单;build-ipk.sh 按存在性安装 /usr/bin/p2pcweb
+          curl -fsSL -o "$tmp/p2pc-web-${triple}" "$base/p2pc-web-${triple}"
+          (cd "$tmp" && grep " p2pc-web-${triple}\$" checksums.txt | sha256sum -c -)
+          install -m 0755 "$tmp/p2pc-web-${triple}" dist/p2pcweb
           rm -rf "$tmp"
       - uses: actions/setup-node@v6
         with:
