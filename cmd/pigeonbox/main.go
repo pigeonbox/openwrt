@@ -22,7 +22,7 @@ import (
 
 	"github.com/pigeonbox/core/bootstrap"
 	"github.com/pigeonbox/core/pkg/logger"
-	"github.com/pigeonbox/kit/version"
+	"github.com/oekit/core/version"
 	"github.com/pigeonbox/openwrt/internal/adminsync"
 
 	"go.uber.org/zap"
