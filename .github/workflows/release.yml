@@ -17,6 +17,18 @@ on:
         required: true
         type: string
 
+concurrency:
+  # 手动 dispatch 重跑与 tag 自动触发可能并发写同一 Release(--clobber:先写者被
+  # 静默覆盖,不报错)。按目标版本分组串行;cancel-in-progress:false——发布中途
+  # 取消比排队更糟。键取目标版本而非 github.ref:dispatch 的 ref 是分支、
+  # tag 触发的 ref 是 tag,用 ref 分组等于没分组。
+  group: ${{ github.workflow }}-${{ inputs.version || github.ref_name }}
+  cancel-in-progress: false
+
+# 默认只读;真正要写本仓 Release 的作业在作业级单独开 contents: write
+permissions:
+  contents: read
+
 jobs:
   build:
     strategy:
@@ -27,8 +39,9 @@ jobs:
           - arch: aarch64_generic
             goarch: arm64
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # 手动 dispatch 时按输入版本检出对应 tag,产物与 tag 严格一致
           ref: ${{ inputs.version || github.ref_name }}
@@ -41,7 +54,7 @@ jobs:
             grep -q "github.com/pigeonbox/core ${CORE_PIN}" go.mod || { echo "::error::go.mod core 钉版 ≠ DEPS.env CORE_PIN=${CORE_PIN}(fnos v1.2.7 悬空钉版守卫)"; exit 1; }
           fi
       # 前端自包含在本仓 web/(frontend-core tgz 钉版=web/package.json),无需读壳仓 ref
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: "1.26"
       - name: 交叉编译(CGO_ENABLED=0,纯 Go sqlite)
@@ -72,7 +85,7 @@ jobs:
           (cd "$tmp" && grep " p2pc-web-${triple}\$" checksums.txt | sha256sum -c -)
           install -m 0755 "$tmp/p2pc-web-${triple}" dist/p2pcweb
           rm -rf "$tmp"
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
       - name: 前端构建 + 双格式打包(ipk + 签名 apk)
@@ -91,7 +104,7 @@ jobs:
           # 签名私钥(GH secret,PEM)落盘供 mkpkg --sign-key;公钥 keys/pigeonbox.pem 已入库
           echo "${APK_SIGN_KEY}" > /tmp/apk-sign.key
           APK_SIGN_KEY=/tmp/apk-sign.key ./scripts/build-apk.sh ${{ matrix.arch }} "${VERSION#v}"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: packages-${{ matrix.arch }}
           path: |
@@ -104,14 +117,15 @@ jobs:
     if: github.event_name == 'push'
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: packages-x86_64
           path: rel
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: packages-aarch64_generic
           path: rel
@@ -129,12 +143,13 @@ jobs:
   attach-to-hub:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: packages-x86_64
           path: rel
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: packages-aarch64_generic
           path: rel
