@@ -32,7 +32,7 @@ iStore → 手动安装 → 粘贴 ipk 下载 URL（本仓 [Releases](https://gi
 
 ```sh
 # x86_64 设备
-wget -O /tmp/pigeonbox.ipk https://github.com/pigeonbox/openwrt/releases/download/v1.22.0/pigeonbox_1.22.0-1_x86_64.ipk
+wget -O /tmp/pigeonbox.ipk https://github.com/pigeonbox/openwrt/releases/download/v3.3.2/pigeonbox_3.3.2-1_x86_64.ipk
 opkg install /tmp/pigeonbox.ipk
 ```
 
@@ -44,7 +44,7 @@ opkg install /tmp/pigeonbox.ipk
 # 1) 预置签名公钥(一次性;否则 apk add 需加 --allow-untrusted)
 wget -O /etc/apk/keys/pigeonbox.pem https://github.com/pigeonbox/openwrt/raw/main/keys/pigeonbox.pem
 # 2) 安装(依赖 redis-server 自动拉取,装后自动启用并启动)
-wget -O /tmp/pigeonbox.apk https://github.com/pigeonbox/openwrt/releases/download/v1.22.0/pigeonbox-1.22.0-r0_x86_64.apk
+wget -O /tmp/pigeonbox.apk https://github.com/pigeonbox/openwrt/releases/download/v3.3.2/pigeonbox-3.3.2-r0_x86_64.apk
 apk add /tmp/pigeonbox.apk
 ```
 
