@@ -1,14 +1,14 @@
 {
   "name": "@pigeonbox/openwrt-web",
   "private": true,
-  "version": "3.3.12",
+  "version": "3.3.13",
   "description": "PigeonBox OpenWrt 内嵌前端(neutral 构建):公共应用 core(@pigeonbox/frontend-core tgz)自带入口,无宿主适配器——OpenWrt 为独立端口部署;ipk/apk 的 www 产物自本目录构建",
   "scripts": {
     "build": "vite build",
     "typecheck": "vue-tsc --noEmit -p tsconfig.app.json"
   },
   "dependencies": {
-    "@pigeonbox/frontend-core": "https://github.com/pigeonbox/frontend-core/releases/download/v0.11.14/pigeonbox-frontend-core-0.11.14.tgz"
+    "@pigeonbox/frontend-core": "https://github.com/pigeonbox/frontend-core/releases/download/v0.11.15/pigeonbox-frontend-core-0.11.15.tgz"
   },
   "devDependencies": {
     "@types/node": "^24.12.0",
