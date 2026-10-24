@@ -8,7 +8,7 @@ require (
 	github.com/cloudwego/hertz v0.10.6
 	github.com/glebarez/go-sqlite v1.21.2
 	github.com/oekit/core v0.12.0
-	github.com/pigeonbox/core v0.32.1
+	github.com/pigeonbox/core v0.32.2
 	github.com/stretchr/testify v1.12.1
 	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.57.0
@@ -53,7 +53,7 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/oekit/concurrency v0.20.4 // indirect
 	github.com/oekit/kitx v0.3.1 // indirect
-	github.com/oekit/pkg v0.24.0 // indirect
+	github.com/oekit/pkg v0.25.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.3.1 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/pigeonbox/contracts v0.18.6 // indirect
