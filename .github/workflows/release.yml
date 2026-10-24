@@ -85,7 +85,7 @@ jobs:
           (cd "$tmp" && grep " p2pc-web-${triple}\$" checksums.txt | sha256sum -c -)
           install -m 0755 "$tmp/p2pc-web-${triple}" dist/p2pcweb
           rm -rf "$tmp"
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
       - name: 前端构建 + 双格式打包(ipk + 签名 apk)
