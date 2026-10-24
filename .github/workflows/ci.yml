@@ -20,14 +20,26 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: "1.26"
+      # gofmt 门禁（2026-10-24 补）：此前 openwrt 仓的 CI **没有 gofmt 步**
+      # （core/server/p2p/contracts/fnos 早已有）⇒ 格式漂移无人拦。
+      # **发现即红，修法是 gofmt -w**，不设豁免。
+      - name: Gofmt
+        if: always()
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      # 门禁步骤**互不阻塞**（if: always()）：此前是串行链 ⇒ 前一步失败 ⇒ 后面
+      # 全部 skipped ⇒ 那些门禁等于没跑（core 仓实录：gofmt 先红 ⇒ race/lint/
+      # 架构棘轮全被 skip ⇒ 真实 DATA RACE 藏在 main 上活了两列车）。
       - name: go vet + test
+        if: always()
         run: |
           go vet ./...
           go test ./... -race
       # 依赖漏洞门禁（govulncheck）：可达漏洞即红；修复策略=升依赖地板，不许注释绕过
       - name: Govulncheck
+        if: always()
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
       - name: 构建 linux/amd64 二进制
+        if: always()
         run: |
           VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
@@ -36,10 +48,9 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
-      - name: web 类型检查(2026-10-09 拆仓:web/ 自包含,frontend-core tgz 钉版)
-        run: cd web && npm ci --no-audit --no-fund && npm run typecheck
       - name: 构建前端 + 组装双格式包
         # apk3 版本格式严(数字段+letter+-rN),"ci" 这类后缀非法,CI 版本用纯 0.0.0
+        if: always()
         run: |
           ./scripts/build-frontend.sh
           ./scripts/build-ipk.sh x86_64 0.0.0
@@ -52,6 +63,24 @@ jobs:
             dist/pigeonbox-*.apk
           retention-days: 14
           if-no-files-found: error
+
+  # web 类型检查**独立成 job**（2026-10-24）：此前它在 build job 里，而两个
+  # 真机冒烟门禁（smoke-openwrt-ipk / smoke-openwrt-apk）都 `needs: build`
+  # ⇒ build 里任何一步失败 ⇒ **两个真机冒烟门禁一起被 skip** ⇒ 冒烟等于没跑。
+  # 实录：某次 `npm ci`（拉 frontend-core tgz 走网络）偶发失败 ⇒ 类型检查红
+  # ⇒ 两个冒烟全 skip，而 UI 上只显示 build 红，看不出冒烟没跑。
+  # ⇒ 拆出后：类型检查红**不再**吃掉冒烟门禁；前端类型真有问题时 vite build
+  # 也会失败 ⇒ build 仍红 ⇒ 合并仍被挡（链条有效）。
+  web-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+      # npm ci 走网络 ⇒ 偶发失败 ⇒ 加 --fetch-retries 让它自愈重试
+      - name: web 类型检查(2026-10-09 拆仓:web/ 自包含,frontend-core tgz 钉版)
+        run: cd web && npm ci --no-audit --no-fund --fetch-retries=3 --fetch-retry-mintimeout=20000 && npm run typecheck
 
   smoke-openwrt-ipk:
     # OpenWrt rootfs 容器内真装:opkg 按 Depends 自动拉 redis-server + postinst
