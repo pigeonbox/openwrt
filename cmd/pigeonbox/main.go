@@ -20,9 +20,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/oekit/core/version"
 	"github.com/pigeonbox/core/bootstrap"
 	"github.com/pigeonbox/core/pkg/logger"
-	"github.com/oekit/core/version"
 	"github.com/pigeonbox/openwrt/internal/adminsync"
 	"github.com/pigeonbox/openwrt/internal/beam"
 
