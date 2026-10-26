@@ -60,7 +60,7 @@ jobs:
       # ⇒ runner 实际拿到的 patch 版本不保证 ≥ 地板 ⇒ 构建直接失败)。
       # GOTOOLCHAIN=auto:将来 setup-go 升到 v7(强制 GOTOOLCHAIN=local)时
       # 地板再抬也能自动拉取,而不是构建失败。
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.26.10"
       - name: 交叉编译(CGO_ENABLED=0,纯 Go sqlite)
