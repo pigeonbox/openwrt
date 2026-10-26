@@ -31,6 +31,8 @@ permissions:
 
 jobs:
   build:
+    env:
+      GOTOOLCHAIN: auto # 覆盖 setup-go v7 强制的 GOTOOLCHAIN=local,地板再抬时自动拉取
     strategy:
       matrix:
         include:
@@ -54,37 +56,32 @@ jobs:
             grep -q "github.com/pigeonbox/core ${CORE_PIN}" go.mod || { echo "::error::go.mod core 钉版 ≠ DEPS.env CORE_PIN=${CORE_PIN}(fnos v1.2.7 悬空钉版守卫)"; exit 1; }
           fi
       # 前端自包含在本仓 web/(frontend-core tgz 钉版=web/package.json),无需读壳仓 ref
+      # go-version 精确钉到 1.26.10(= go.mod 的 toolchain 地板;浮动 "1.26"
+      # ⇒ runner 实际拿到的 patch 版本不保证 ≥ 地板 ⇒ 构建直接失败)。
+      # GOTOOLCHAIN=auto:将来 setup-go 升到 v7(强制 GOTOOLCHAIN=local)时
+      # 地板再抬也能自动拉取,而不是构建失败。
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: "1.26"
+          go-version: "1.26.10"
       - name: 交叉编译(CGO_ENABLED=0,纯 Go sqlite)
         run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.goarch }} go build \
+          # GOWORK=off:钉版构建(否则在 hub 工作区里会联编本地 core ⇒ 版本幽灵)
+          CGO_ENABLED=0 GOWORK=off GOOS=linux GOARCH=${{ matrix.goarch }} go build \
             -ldflags="-w -s \
             -X 'github.com/oekit/core/version.Version=${{ inputs.version || github.ref_name }}' \
             -X 'github.com/oekit/core/version.BuildCommit=${{ github.sha }}' \
             -X 'github.com/oekit/core/version.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)'" \
             -o dist/pigeonbox ./cmd/pigeonbox
-      - name: 随包 p2pc(按矩阵架构下载+sha256 校验;DEPS.env P2PC_REF 钉版)
+      - name: 随包 p2pc(DEPS.env P2PC_REF 钉版+sha256 校验)
+        # 下载口径与 CI/Makefile 共用 scripts/fetch-p2pc.sh(2026-10-26 审计 P1:
+        # 此前下载逻辑三处各抄一份 ⇒ 已经漂移过一次 ⇒ 打包脚本漏装 p2pc 而
+        # 流水线照样下载 ⇒ 装出来的包直传不可用)。
         run: |
-          set -euo pipefail
-          ref=$(grep '^P2PC_REF=' DEPS.env | cut -d= -f2 | tr -d ' \r')
-          [ -n "$ref" ] || { echo "DEPS.env 无 P2PC_REF,跳过"; exit 0; }
           case "${{ matrix.goarch }}" in
             amd64) triple=x86_64-unknown-linux-gnu ;;
             arm64) triple=aarch64-unknown-linux-gnu ;;
           esac
-          base="https://github.com/pigeonbox/p2p/releases/download/${ref}"
-          tmp=$(mktemp -d)
-          curl -fsSL -o "$tmp/checksums.txt" "$base/p2pc-checksums.txt"
-          curl -fsSL -o "$tmp/p2pc-${triple}" "$base/p2pc-${triple}"
-          (cd "$tmp" && grep " p2pc-${triple}\$" checksums.txt | sha256sum -c -)
-          install -m 0755 "$tmp/p2pc-${triple}" dist/p2pc
-          # p2pcweb(A2 内嵌):同 REF 同 checksums 清单;build-ipk.sh 按存在性安装 /usr/bin/p2pcweb
-          curl -fsSL -o "$tmp/p2pc-web-${triple}" "$base/p2pc-web-${triple}"
-          (cd "$tmp" && grep " p2pc-web-${triple}\$" checksums.txt | sha256sum -c -)
-          install -m 0755 "$tmp/p2pc-web-${triple}" dist/p2pcweb
-          rm -rf "$tmp"
+          ./scripts/fetch-p2pc.sh "$triple" dist
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
@@ -104,6 +101,16 @@ jobs:
           # 签名私钥(GH secret,PEM)落盘供 mkpkg --sign-key;公钥 keys/pigeonbox.pem 已入库
           echo "${APK_SIGN_KEY}" > /tmp/apk-sign.key
           APK_SIGN_KEY=/tmp/apk-sign.key ./scripts/build-apk.sh ${{ matrix.arch }} "${VERSION#v}"
+      # 包内文件清单断言（发布物级）：**真正发出去的包**必须含随包 p2pc/p2pcweb。
+      # 打包脚本漏装时 CI 冒烟那份也会漏 ⇒ 必须在发布链路上再断言一次。
+      - name: 发布包内文件清单断言(含随包 p2pc/p2pcweb)
+        run: |
+          set -euo pipefail
+          VER="${{ inputs.version || github.ref_name }}"
+          for f in dist/pigeonbox_${VER#v}-1_*.ipk; do
+            [ -f "$f" ] || continue
+            ./scripts/assert-pkg-contents.sh "$f" usr/bin/pigeonbox usr/bin/p2pc usr/bin/p2pcweb
+          done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: packages-${{ matrix.arch }}

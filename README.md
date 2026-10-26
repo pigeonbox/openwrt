@@ -11,7 +11,7 @@ PigeonBox（文件快递柜，匿名口令分享文本/文件）的 **OpenWrt / 
 - JWT 密钥自动生成并持久化，开箱即用、重启不失效
 - 配置走 UCI（`/etc/config/pigeonbox`），高级项支持 drop-in `config.yaml`
 - 双架构：`x86_64`（iStoreOS 主流）/ `aarch64_generic`（ARM SBC）
-- 设备直传：ipk/apk 随包 p2pc 二进制（`/usr/bin/p2pc`，DEPS.env `P2PC_REF` 钉版+sha256 校验，`make p2pc` 可单独拉取）；admin「系统配置→P2P」分区热启停联邦与设备直传（standalone 部署专属）
+- 设备直传：ipk/apk **随包 p2pc 与 p2pcweb 两个二进制**（`/usr/bin/p2pc`、`/usr/bin/p2pcweb`，DEPS.env `P2PC_REF` 钉版+sha256 校验，`make p2pc` 可单独拉取；包内文件清单由 `scripts/assert-pkg-contents.sh` 与 CI 冒烟双重断言）；admin「系统配置→P2P」分区热启停联邦与设备直传（standalone 部署专属）
 
 > 内存建议 ≥512MB（Go 服务 + Redis）。纯软路由小内存设备不适用。
 

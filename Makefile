@@ -1,33 +1,20 @@
-.PHONY: build test vet frontend ipx clean
+.PHONY: build test vet frontend ipx p2pc clean
 
 # PigeonBox OpenWrt/iStoreOS 适配层
-# 独立构建钉 go.mod 正式版本(core v0.13.0);在 hub 工作区内直接跑会拾取
-# 上层 go.work 联编本地 core,GOWORK=off 强制钉版构建,两者皆可。
+# 独立构建钉 go.mod 正式版本(core 版本=DEPS.env CORE_PIN,勿在此硬编码:
+# 硬编码的版本号必然过期,而过期版本号会**误导人**以为构建用的是那个版本);
+# 在 hub 工作区内直接跑会拾取上层 go.work 联编本地 core ⇒ 构建一律
+# GOWORK=off 强制钉版构建,两者皆可。
+#
+# 守卫:scripts/check-build-pin.sh 断言「产物里的 core 版本 == DEPS.env CORE_PIN」
+# （GOWORK=off 时 go version -m 显示 vX.Y.Z;联编工作区时显示 (devel) ⇒ 变红）。
 
 build:            ## 编译本机二进制(dist/pigeonbox,默认 static-dir 指向包内路径)
-	go build -o dist/pigeonbox ./cmd/pigeonbox
+	GOWORK=off go build -o dist/pigeonbox ./cmd/pigeonbox
 
 p2pc:             ## 下载随包 p2pc+p2pcweb(版本=DEPS.env P2PC_REF;缺省跳过,直传优雅降级)
-	@ref=$$(sed -n 's/^P2PC_REF=//p' DEPS.env | tr -d ' \r'); \
-	[ -n "$$ref" ] || { echo "(DEPS.env 无 P2PC_REF,跳过 p2pc)"; exit 0; }; \
-	arch=$$(uname -m); case "$$arch" in x86_64) triple=x86_64-unknown-linux-gnu;; aarch64|arm64) triple=aarch64-unknown-linux-gnu;; *) echo "unsupported: $$arch"; exit 1;; esac; \
-	mkdir -p dist; \
-	base="https://github.com/pigeonbox/p2p/releases/download/$$ref"; \
-	tmp=$$(mktemp -d); \
-	if curl -fsSL -m 60 -o "$$tmp/checksums.txt" "$$base/p2pc-checksums.txt" 2>/dev/null \
-	   && curl -fsSL -m 300 -o "$$tmp/p2pc-$$triple" "$$base/p2pc-$$triple" 2>/dev/null; then :; \
-	elif command -v gh >/dev/null 2>&1; then \
-	  gh release download "$$ref" -R pigeonbox/p2p -p "p2pc-$$triple" -O "$$tmp/p2pc-$$triple" --clobber && \
-	  gh release download "$$ref" -R pigeonbox/p2p -p p2pc-checksums.txt -O "$$tmp/checksums.txt" --clobber; \
-	else echo "curl/gh 均失败"; rm -rf "$$tmp"; exit 1; fi; \
-	(cd "$$tmp" && grep " p2pc-$$triple\$$" checksums.txt | shasum -a 256 -c - >/dev/null) || { echo "sha256 校验失败"; rm -rf "$$tmp"; exit 1; }; \
-	install -m 0755 "$$tmp/p2pc-$$triple" dist/p2pc && rm -rf "$$tmp" && echo "✓ p2pc @ $$ref"; \
-	if curl -fsSL -m 300 -o "$$tmp/p2pc-web-$$triple" "$$base/p2pc-web-$$triple" 2>/dev/null; then :; \
-	elif command -v gh >/dev/null 2>&1; then \
-	  gh release download "$$ref" -R pigeonbox/p2p -p "p2pc-web-$$triple" -O "$$tmp/p2pc-web-$$triple" --clobber || exit 1; \
-	else echo "p2pc-web: curl/gh 均失败"; rm -rf "$$tmp"; exit 1; fi; \
-	(cd "$$tmp" && grep " p2pc-web-$$triple\$$" checksums.txt | shasum -a 256 -c - >/dev/null) || { echo "p2pc-web sha256 校验失败"; rm -rf "$$tmp"; exit 1; }; \
-	install -m 0755 "$$tmp/p2pc-web-$$triple" dist/p2pcweb && rm -rf "$$tmp" && echo "✓ p2pcweb @ $$ref"
+	@triple=$$(case "$$(uname -m)" in x86_64) echo x86_64-unknown-linux-gnu;; aarch64|arm64) echo aarch64-unknown-linux-gnu;; *) echo unsupported: $$(uname -m); exit 1;; esac); \
+	./scripts/fetch-p2pc.sh "$$triple" dist
 
 test:
 	go test ./... -race

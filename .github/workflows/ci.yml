@@ -15,11 +15,17 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: auto # 覆盖 setup-go v7 强制的 GOTOOLCHAIN=local,地板再抬时自动拉取
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # go-version 精确钉到 1.26.10(= go.mod 的 toolchain 地板;浮动 "1.26"
+      # ⇒ runner 实际拿到的 patch 版本不保证 ≥ 地板 ⇒ 构建直接失败)。
+      # GOTOOLCHAIN=auto:将来 setup-go 升到 v7(强制 GOTOOLCHAIN=local)时
+      # 地板再抬也能自动拉取,而不是构建失败。
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: "1.26"
+          go-version: "1.26.10"
       # gofmt 门禁（2026-10-24 补）：此前 openwrt 仓的 CI **没有 gofmt 步**
       # （core/server/p2p/contracts/fnos 早已有）⇒ 格式漂移无人拦。
       # **发现即红，修法是 gofmt -w**，不设豁免。
@@ -42,19 +48,44 @@ jobs:
         if: always()
         run: |
           VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+          # GOWORK=off：钉版构建（否则在 hub 工作区里会联编本地 core ⇒ 版本幽灵）
+          CGO_ENABLED=0 GOWORK=off GOOS=linux GOARCH=amd64 go build \
             -ldflags="-w -s -X 'github.com/oekit/core/version.Version=${VERSION}'" \
             -o dist/pigeonbox ./cmd/pigeonbox
+      # 钉版构建守卫（2026-10-26 审计 P2）：产物里的 core 版本必须 == DEPS.env
+      # CORE_PIN；自证负对照=工作区构建显示 (devel) ⇒ GOWORK=off 是必需的。
+      - name: 钉版构建守卫(core 版本 == DEPS.env CORE_PIN)
+        if: always()
+        run: bash scripts/check-build-pin.sh
+      # 随包 p2pc + p2pcweb（2026-10-26 审计 P1）：打包脚本曾**只装 p2pcweb**、
+      # apk 侧连 p2pcweb 都没有 ⇒ 装出来的包直传不可用，而流水线照样下载。
+      # 下载口径收敛到 scripts/fetch-p2pc.sh（Makefile/CI/release 共用一份）。
+      - name: 下载随包 p2pc/p2pcweb(DEPS.env P2PC_REF 钉版+sha256 校验)
+        if: always()
+        run: ./scripts/fetch-p2pc.sh x86_64-unknown-linux-gnu dist
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
       - name: 构建前端 + 组装双格式包
         # apk3 版本格式严(数字段+letter+-rN),"ci" 这类后缀非法,CI 版本用纯 0.0.0
+        # 额外组装 0.0.1：升级路径（同包升级 ⇒ postinst 重跑 ⇒ 服务仍须拉起）
+        # 从未被断言过 ⇒ 「升级后服务不拉起」要到用户手里才暴露。
         if: always()
         run: |
           ./scripts/build-frontend.sh
           ./scripts/build-ipk.sh x86_64 0.0.0
+          ./scripts/build-ipk.sh x86_64 0.0.1
           ./scripts/build-apk.sh x86_64 0.0.0
+          ./scripts/build-apk.sh x86_64 0.0.1
+      # 包内文件清单断言（不只看运行时存在性）：打包脚本漏装 p2pc 时，
+      # 真正发布出去的那份同样漏装 ⇒ 必须在**包内**断言。
+      - name: 包内文件清单断言(ipk 必须含 usr/bin/p2pc 与 p2pcweb)
+        if: always()
+        run: |
+          ./scripts/assert-pkg-contents.sh dist/pigeonbox_0.0.0-1_x86_64.ipk \
+            usr/bin/pigeonbox usr/bin/p2pc usr/bin/p2pcweb usr/etc/init.d/pigeonbox
+          ./scripts/assert-pkg-contents.sh dist/pigeonbox_0.0.1-1_x86_64.ipk \
+            usr/bin/pigeonbox usr/bin/p2pc usr/bin/p2pcweb
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: packages-x86_64
@@ -84,7 +115,9 @@ jobs:
 
   smoke-openwrt-ipk:
     # OpenWrt rootfs 容器内真装:opkg 按 Depends 自动拉 redis-server + postinst
-    # 自动启用/启动 + /ping 探活。opkg install 幂等重跑一次作为显式断言。
+    # 自动启用/启动 + /ping 探活。
+    # 幂等重跑作为显式断言:**装第二个版本 = 真实升级路径**（postinst 重跑、
+    # 服务 restart、LuCI ACL 重载）——此前只装一次 ⇒ 升级路径从未被断言。
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -92,7 +125,7 @@ jobs:
         with:
           name: packages-x86_64
           path: dist
-      - name: opkg 安装冒烟
+      - name: opkg 安装冒烟(全新安装 + 升级路径 + 随包 p2pc)
         # rootfs 镜像默认 Cmd 为空会秒退,须显式 /sbin/init 起 OpenWrt 引导
         # (procd 托管 + postinst 自动启用/启动),再 exec 进去做断言。
         run: |
@@ -101,12 +134,22 @@ jobs:
           sleep 10
           docker exec fcb-smoke sh -eux -c '
             opkg update >/dev/null
-            opkg install /pkg/pigeonbox_*.ipk
+            opkg install /pkg/pigeonbox_0.0.0-1_x86_64.ipk
             sleep 3
             wget -qO- http://127.0.0.1:12345/ping
             # notifies 表回归断言(env-only auto_migrate 门控曾致缺表 500,core v0.13.1 修)
             wget -qO- http://127.0.0.1:12345/notifies/active | grep -q "\"code\":0"
             logread | grep -i "redis initialized"
+            # 随包 p2pc 直传二进制必须存在(2026-10-26 审计 P1:ipk 曾只装 p2pcweb
+            # ⇒ OpenWrt 全系直传不可用,而发布物仍宣称随包 p2pc)
+            test -x /usr/bin/p2pc
+            test -x /usr/bin/p2pcweb
+            # 升级路径:装新版本 ⇒ postinst 重跑 ⇒ 服务仍须拉起(负对照:
+            # 在 pigeonbox.postinst 注入 exit 1 ⇒ 本步必须红)
+            opkg install /pkg/pigeonbox_0.0.1-1_x86_64.ipk
+            sleep 3
+            wget -qO- http://127.0.0.1:12345/ping
+            test -x /usr/bin/p2pc
           '
           docker rm -f fcb-smoke
 
@@ -114,6 +157,7 @@ jobs:
     # apk3 新代(25.12):apk add 按 depends 自动拉 redis-server + post-install
     # 脚本启用/启动 + /ping 探活。CI 构建未签名(密钥只在 release),故
     # --allow-untrusted;发布产物为签名包,受信安装已在 v0.2.0 容器实测。
+    # 同样断言**升级路径**（装第二个版本 ⇒ post-install 重跑）。
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -121,19 +165,29 @@ jobs:
         with:
           name: packages-x86_64
           path: dist
-      - name: apk 安装冒烟
+      - name: apk 安装冒烟(全新安装 + 升级路径 + 随包 p2pc)
         run: |
           docker rm -f fcb-smoke-apk >/dev/null 2>&1 || true
           docker run -d --name fcb-smoke-apk "${SMOKE_IMAGE_APK}" /sbin/init
           sleep 10
-          docker cp dist/pigeonbox-*.apk fcb-smoke-apk:/tmp/
+          docker cp dist/pigeonbox-0.0.0-r0_x86_64.apk fcb-smoke-apk:/tmp/pigeonbox-0.0.0.apk
+          docker cp dist/pigeonbox-0.0.1-r0_x86_64.apk fcb-smoke-apk:/tmp/pigeonbox-0.0.1.apk
           docker exec fcb-smoke-apk sh -eux -c '
             apk update >/dev/null
-            apk add --allow-untrusted /tmp/pigeonbox-*.apk
+            apk add --allow-untrusted /tmp/pigeonbox-0.0.0.apk
             sleep 3
             wget -qO- http://127.0.0.1:12345/ping
             # notifies 表回归断言(env-only auto_migrate 门控曾致缺表 500,core v0.13.1 修)
             wget -qO- http://127.0.0.1:12345/notifies/active | grep -q "\"code\":0"
             logread | grep -i "redis initialized"
+            # 随包 p2pc + p2pcweb(apk 数据树此前两者皆无 ⇒ 直传不可用)
+            test -x /usr/bin/p2pc
+            test -x /usr/bin/p2pcweb
+            # 升级路径:装新版本 ⇒ post-install 重跑 ⇒ 服务仍须拉起(负对照:
+            # 在 pigeonbox.post-install 注入 exit 1 ⇒ 本步必须红)
+            apk add --allow-untrusted /tmp/pigeonbox-0.0.1.apk
+            sleep 3
+            wget -qO- http://127.0.0.1:12345/ping
+            test -x /usr/bin/p2pc
           '
           docker rm -f fcb-smoke-apk

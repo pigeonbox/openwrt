@@ -38,7 +38,15 @@ install -d "$DATA/usr/bin" \
 install -m 0755 "$ROOT/dist/pigeonbox" "$DATA/usr/bin/pigeonbox"
 # p2pc 设备直传随包(2026-10-14 P2b):dist/p2pc 存在才装,缺失优雅降级;
 # supervisor 候选查找序含 /usr/bin/p2pc,init 脚本零改动。
+# ⚠️ 2026-10-26 审计 P1:**本块曾被删掉**(只剩 p2pcweb)⇒ 装出来的 ipk 没有
+# p2pc ⇒ OpenWrt 全系设备直传不可用,而发布物/流水线/README 仍宣称「随包 p2pc」
+# ⇒ 三端(fnos/qnap 正常随包)行为不一致且无门禁能发现。
+# ⇒ 恢复安装，并用 scripts/assert-pkg-contents.sh 断言**包内文件清单**含
+#   usr/bin/p2pc（不只看运行时存在性：打包脚本漏装时发布物同样漏装）。
 # p2pcweb(A2 内嵌)同规则:make p2pc 同批抓取,init beam 段按存在性启动。
+if [ -f "$ROOT/dist/p2pc" ]; then
+	install -m 0755 "$ROOT/dist/p2pc" "$DATA/usr/bin/p2pc"
+fi
 if [ -f "$ROOT/dist/p2pcweb" ]; then
 	install -m 0755 "$ROOT/dist/p2pcweb" "$DATA/usr/bin/p2pcweb"
 fi

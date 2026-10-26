@@ -36,6 +36,18 @@ install -d "$DATA/usr/bin" \
 	"$DATA/usr/share/rpcd/acl.d" \
 	"$DATA/www/luci-static/resources/view/pigeonbox"
 install -m 0755 "$ROOT/dist/pigeonbox" "$DATA/usr/bin/pigeonbox"
+# p2pc + p2pcweb 随包(与 ipk 同布局)。
+# ⚠️ 2026-10-26 审计 P1:**apk 数据树此前连 p2pcweb 都没有** ⇒ apk3 装出来的
+# 包既无 p2pc 也无 PigeonBeam 网页客户端 ⇒ 设备直传在 OpenWrt 全系不可用,
+# 而发布物/流水线/README 仍宣称「随包 p2pc」⇒ 三端行为不一致且无门禁发现。
+# ⇒ 恢复安装（存在才装,缺失优雅降级）。apk3 是 ADB 格式无法用 tar 解包,
+#   故包内清单断言在容器内做（见 .github/workflows/ci.yml）。
+if [ -f "$ROOT/dist/p2pc" ]; then
+	install -m 0755 "$ROOT/dist/p2pc" "$DATA/usr/bin/p2pc"
+fi
+if [ -f "$ROOT/dist/p2pcweb" ]; then
+	install -m 0755 "$ROOT/dist/p2pcweb" "$DATA/usr/bin/p2pcweb"
+fi
 cp -R "$ROOT/dist/www/." "$DATA/usr/share/pigeonbox/www/"
 install -m 0644 "$ROOT/openwrt/pigeonbox.config" "$DATA/etc/config/pigeonbox"
 install -m 0755 "$ROOT/openwrt/pigeonbox.init" "$DATA/etc/init.d/pigeonbox"
