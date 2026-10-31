@@ -83,6 +83,23 @@ UCI 之外的配置项（S3/OIDC/联邦/mcp 等）：把 [configs/config.yaml](.
 logread | grep pigeonbox   # 日志(procd stdout→syslog)
 ```
 
+## 命令行客户端（pb）
+
+安装包自带官方命令行客户端 **pb**（`/usr/bin/pb`，**在 PATH 里**），用于自检当前实例：
+
+```sh
+pb doctor          # 部署自检：版本/数据库/存储后端/Redis/站点地址/首启状态…
+pb doctor --json   # 机器读（CI / 巡检）
+```
+
+> **深度检查需要 admin 的 API Key**：在管理台「用户中心 → API 令牌」创建后执行
+> ```sh
+> PB_API_KEY=pb_sk_xxx pb doctor
+> ```
+> 未设置 Key 时仍会做**公开面检查**（服务可达等），并明确标注「深度检查未执行」。
+
+> pb 的版本与包内服务端**同号**（同一趟发布列车产出）⇒ 不会出现「客户端比服务端新」的错配。
+
 ## 从源码构建
 
 ```sh

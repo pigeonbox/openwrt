@@ -63,6 +63,13 @@ jobs:
       - name: 下载随包 p2pc/p2pcweb(DEPS.env P2PC_REF 钉版+sha256 校验)
         if: always()
         run: ./scripts/fetch-p2pc.sh x86_64-unknown-linux-gnu dist
+      # pb CLI 随包（官方命令行客户端：doctor 部署自检等）。
+      # 从 **server 同号 tag 的源码**编译（不是下载 Release 资产）——
+      # 同号 tag 同时触发 ⇒ 下载资产会与 server 的 Release 流水线竞态；
+      # git tag 立即可见 ⇒ 零竞态。详见 scripts/fetch-pb.sh 顶部说明。
+      - name: 构建随包 pb CLI(server 同号 tag 源码)
+        if: always()
+        run: ./scripts/fetch-pb.sh x86_64-unknown-linux-gnu dist
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
@@ -83,9 +90,9 @@ jobs:
         if: always()
         run: |
           ./scripts/assert-pkg-contents.sh dist/pigeonbox_0.0.0-1_x86_64.ipk \
-            usr/bin/pigeonbox usr/bin/p2pc usr/bin/p2pcweb etc/init.d/pigeonbox
+            usr/bin/pigeonbox usr/bin/p2pc usr/bin/p2pcweb usr/bin/pb etc/init.d/pigeonbox
           ./scripts/assert-pkg-contents.sh dist/pigeonbox_0.0.1-1_x86_64.ipk \
-            usr/bin/pigeonbox usr/bin/p2pc usr/bin/p2pcweb
+            usr/bin/pigeonbox usr/bin/p2pc usr/bin/p2pcweb usr/bin/pb
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: packages-x86_64
