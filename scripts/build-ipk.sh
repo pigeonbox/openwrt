@@ -21,7 +21,8 @@ OUTDIR=${3:-dist}
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STAGING="$(mktemp -d)"
-trap 'rm -rf "$STAGING"' EXIT
+OK=0
+trap 'rc=$?; rm -rf "$STAGING"; if [ "$rc" -ne 0 ]; then exit $rc; fi; if [ "${OK:-0}" != 1 ]; then exit 1; fi; exit 0' EXIT
 
 [ -f "$ROOT/dist/pigeonbox" ] || { echo "缺 dist/pigeonbox(先 go build)"; exit 1; }
 [ -f "$ROOT/dist/www/index.html" ] || { echo "缺 dist/www/index.html(先 build-frontend.sh)"; exit 1; }
@@ -99,3 +100,4 @@ cp "$STAGING/debian-binary" "$STAGING/control.tar.gz" "$STAGING/data.tar.gz" "$I
 tar -czf "$IPK" "${TAROWN[@]}" -C "$IPKROOT" .
 
 echo "✓ $IPK ($(du -h "$IPK" | cut -f1))"
+OK=1

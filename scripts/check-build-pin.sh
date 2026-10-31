@@ -20,7 +20,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+OK=0
+trap 'rc=$?; rm -rf "$TMP"; if [ "$rc" -ne 0 ]; then exit $rc; fi; if [ "${OK:-0}" != 1 ]; then exit 1; fi; exit 0' EXIT
 
 fail() { echo "✗ $1" >&2; exit 1; }
 
@@ -65,3 +66,4 @@ else
 fi
 
 echo "✓ openwrt 钉版构建守卫通过（core == ${CORE_PIN}）"
+OK=1

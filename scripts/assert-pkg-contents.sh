@@ -21,7 +21,8 @@ shift
 [ -f "$IPK" ] || { echo "找不到包: $IPK" >&2; exit 1; }
 
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+OK=0
+trap 'rc=$?; rm -rf "$TMP"; if [ "$rc" -ne 0 ]; then exit $rc; fi; if [ "${OK:-0}" != 1 ]; then exit 1; fi; exit 0' EXIT
 
 tar -xzf "$IPK" -C "$TMP" 2>/dev/null \
   || { echo "✗ $IPK 不是合法的 ipk（外层 tar.gz 解不开）" >&2; exit 1; }
@@ -44,3 +45,4 @@ if [ -n "$MISSING" ]; then
 fi
 
 echo "✓ $(basename "$IPK") 包内含：$*"
+OK=1
