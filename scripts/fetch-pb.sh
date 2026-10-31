@@ -50,17 +50,21 @@ esac
 VER="$(cat VERSION 2>/dev/null | tr -d ' \r\n')"
 if [ -z "$VER" ]; then
   echo "(无 VERSION 文件 —— 跳过随包 pb)"
+  OK=1
   exit 0
 fi
 REF="${PB_SERVER_REF:-v${VER}}"
 
 mkdir -p "$OUTDIR"
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+OK=0
+# shellcheck disable=SC2154  # rc 在 trap 体内赋值，shellcheck 看不见
+trap 'rc=$?; rm -rf "$TMP"; if [ "$rc" -ne 0 ]; then exit $rc; fi; if [ "${OK:-0}" != 1 ]; then exit 1; fi; exit 0' EXIT
 
 echo "==> 构建 pb CLI（server ${REF} 源码, GOARCH=${GOARCH}）"
 if ! git clone -q --depth 1 --branch "$REF" https://github.com/pigeonbox/server.git "$TMP/server" 2>/dev/null; then
   echo "    ✗ server ${REF} 源码检出失败 —— pb 优雅降级（包内无 pb）"
+  OK=1
   exit 0
 fi
 
@@ -68,7 +72,9 @@ if ! (cd "$TMP/server" && CGO_ENABLED=0 GOWORK=off GOOS=linux GOARCH="$GOARCH" \
       go build -trimpath -ldflags="-w -s" -o "$ROOT/$OUTDIR/pb" ./cmd/pb) 2>/dev/null; then
   echo "    ✗ pb 编译失败 —— pb 优雅降级（包内无 pb）"
   rm -f "$ROOT/$OUTDIR/pb"
+  OK=1
   exit 0
 fi
 
 echo "    ✓ dist/pb（$(du -h "$ROOT/$OUTDIR/pb" | cut -f1)）"
+OK=1
