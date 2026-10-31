@@ -26,12 +26,15 @@ cd "$ROOT"
 REF=$(sed -n 's/^P2PC_REF=//p' DEPS.env | tr -d ' \r')
 if [ -z "$REF" ]; then
   echo "(DEPS.env 无 P2PC_REF —— 跳过随包 p2pc/直传优雅降级)"
+  OK=1
   exit 0
 fi
 
 BASE="https://github.com/pigeonbox/p2p/releases/download/${REF}"
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+OK=0
+# shellcheck disable=SC2154  # rc 在 trap 体内赋值，shellcheck 看不见
+trap 'rc=$?; rm -rf "$TMP"; if [ "$rc" -ne 0 ]; then exit $rc; fi; if [ "${OK:-0}" != 1 ]; then exit 1; fi; exit 0' EXIT
 
 fetch() { # <资产名>
   asset="$1"
@@ -66,3 +69,4 @@ for pair in "p2pc-${TRIPLE}:p2pc" "p2pc-web-${TRIPLE}:p2pcweb"; do
   install -m 0755 "$TMP/$asset" "$OUTDIR/$dest"
   echo "✓ $dest @ $REF ($TRIPLE)"
 done
+OK=1
