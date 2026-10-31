@@ -47,6 +47,13 @@ install -m 0755 "$ROOT/dist/pigeonbox" "$DATA/usr/bin/pigeonbox"
 if [ -f "$ROOT/dist/p2pc" ]; then
 	install -m 0755 "$ROOT/dist/p2pc" "$DATA/usr/bin/p2pc"
 fi
+# pb CLI 随包(官方命令行客户端:doctor 部署自检等):
+# dist/pb 存在才装,缺失优雅降级(同 p2pc 规则)⇒ 包内无 pb 时应用照常可用。
+# ⚠️ 装到 /usr/bin/pb ⇒ **在 PATH 里** ⇒ 用户直接敲 `pb doctor` 即可,
+#   不必记 /usr/bin/pb 的完整路径。
+if [ -f "$ROOT/dist/pb" ]; then
+	install -m 0755 "$ROOT/dist/pb" "$DATA/usr/bin/pb"
+fi
 if [ -f "$ROOT/dist/p2pcweb" ]; then
 	install -m 0755 "$ROOT/dist/p2pcweb" "$DATA/usr/bin/p2pcweb"
 fi
