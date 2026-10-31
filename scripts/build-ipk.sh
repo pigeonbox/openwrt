@@ -22,6 +22,7 @@ OUTDIR=${3:-dist}
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STAGING="$(mktemp -d)"
 OK=0
+# shellcheck disable=SC2154  # rc 在 trap 体内赋值，shellcheck 看不见
 trap 'rc=$?; rm -rf "$STAGING"; if [ "$rc" -ne 0 ]; then exit $rc; fi; if [ "${OK:-0}" != 1 ]; then exit 1; fi; exit 0' EXIT
 
 [ -f "$ROOT/dist/pigeonbox" ] || { echo "缺 dist/pigeonbox(先 go build)"; exit 1; }
