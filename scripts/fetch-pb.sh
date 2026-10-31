@@ -45,7 +45,7 @@ esac
 #
 # ⚠️ 不要用 `git describe`：CI 是浅克隆且无 tag ⇒ describe 退化成 commit 哈希
 #   ⇒ 拼出的 "v<hash>" 在 GitHub 上不存在 ⇒ 检出必然失败。
-# ⚠️ 也不要用环境变量 $VERSION：release 流水线注入的是 tag 名（v4.6.1），
+# ⚠️ 也不要用环境变量 ${VERSION}：release 流水线注入的是 tag 名（v4.6.1），
 #   而本地产物构建不注入 ⇒ 两处行为不一致。
 VER="$(cat VERSION 2>/dev/null | tr -d ' \r\n')"
 if [ -z "$VER" ]; then
