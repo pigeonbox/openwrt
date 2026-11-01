@@ -54,6 +54,11 @@ jobs:
             -o dist/pigeonbox ./cmd/pigeonbox
       # 钉版构建守卫（2026-10-26 审计 P2）：产物里的 core 版本必须 == DEPS.env
       # CORE_PIN；自证负对照=工作区构建显示 (devel) ⇒ GOWORK=off 是必需的。
+      # 真机复验脚本是 **openwrt#110 关单的证据工具** ⇒ 判据必须能判红
+      # ⇒ 用假设备（假 init.d/LuCI/curl/pgrep/id）驱动脚本自己
+      # ⇒ 正常态绿、每条异常态都红、非 root 报「无法判定」。
+      - name: 真机复验脚本判据自证（假设备必须逐条判红）
+        run: bash scripts/verify-openwrt-runtime.sh --selfcheck
       - name: 钉版构建守卫(core 版本 == DEPS.env CORE_PIN)
         if: always()
         run: bash scripts/check-build-pin.sh
