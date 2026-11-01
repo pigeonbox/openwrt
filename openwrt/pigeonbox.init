@@ -88,6 +88,19 @@ start_service() {
 		procd_set_param stderr 1
 		procd_close_instance
 	fi
+
+	# 出厂预接线:把 Box 地址 + 一把专用 API Key 预置给 PigeonBeam
+	# (Beam 的「文件柜」tab 不再要手填地址与 Key)。
+	# ⚠️ **后台跑**:Box 与 p2pcweb 由 procd **异步**拉起 ⇒ 调用时刻可能早于就绪
+	#   ⇒ 脚本自己会等(最多 30s)⇒ 前台调用会阻塞服务启动。
+	# ⚠️ admin 口令来自 UCI(main admin_password)⇒ 空则脚本自动跳过(未建号场景)。
+	if [ "$beam_enabled" = "1" ] && [ -x /usr/bin/prewire_beam_box ]; then
+		PB_ADMIN_PASSWORD="$admin_password" \
+		PB_SERVER_PORT="$port" \
+		PB_P2PCWEB_PORT="$beam_port" \
+		PB_DATA_PATH="$data_dir" \
+			nohup /usr/bin/prewire_beam_box >>/var/log/pigeonbox-prewire.log 2>&1 &
+	fi
 }
 
 reload_service() {
