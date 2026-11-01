@@ -54,6 +54,15 @@ jobs:
             -o dist/pigeonbox ./cmd/pigeonbox
       # 钉版构建守卫（2026-10-26 审计 P2）：产物里的 core 版本必须 == DEPS.env
       # CORE_PIN；自证负对照=工作区构建显示 (devel) ⇒ GOWORK=off 是必需的。
+      # 出厂预接线（Beam↔Box 地址与专用 API Key）自测（2026-11-01）：
+      # 预接线干两件**错了也不会有人喊**的事——① 建/复用一把 Box API Key；
+      # ② 把地址+Key 写进 p2pcweb 配置。若它「每次启动都建一把新 Key」，
+      # Key 列表会无声膨胀；若它发了空字段把用户配的 registry 冲掉，
+      # 直传注册中心会静默丢失 ⇒ 两类都必须有**能判红**的机械化判据。
+      # 本自测跑**真脚本**（假 Box + 假 p2pcweb），并带**变异负对照**证明判据有牙齿。
+      - name: Beam 出厂预接线自测（幂等 + scope 精确 + 不冲 registry + 等就绪）
+        run: bash scripts/prewire-beam-box-selftest.sh
+
       - name: 钉版构建守卫(core 版本 == DEPS.env CORE_PIN)
         if: always()
         run: bash scripts/check-build-pin.sh
@@ -96,9 +105,9 @@ jobs:
           # ⇒ 「发布出去的包必须含 pb」的**真正断言点**在 release.yml
           #   （tag push 触发，那时 server tag 已可见 —— hub#232 加了顺序保证）。
           ./scripts/assert-pkg-contents.sh dist/pigeonbox_0.0.0-1_x86_64.ipk \
-            usr/bin/pigeonbox usr/bin/p2pc usr/bin/p2pcweb etc/init.d/pigeonbox
+            usr/bin/pigeonbox usr/bin/p2pc usr/bin/p2pcweb usr/bin/prewire_beam_box etc/init.d/pigeonbox
           ./scripts/assert-pkg-contents.sh dist/pigeonbox_0.0.1-1_x86_64.ipk \
-            usr/bin/pigeonbox usr/bin/p2pc usr/bin/p2pcweb
+            usr/bin/pigeonbox usr/bin/p2pc usr/bin/p2pcweb usr/bin/prewire_beam_box
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: packages-x86_64
