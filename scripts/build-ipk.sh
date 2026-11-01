@@ -58,6 +58,8 @@ if [ -f "$ROOT/dist/pb" ]; then
 fi
 if [ -f "$ROOT/dist/p2pcweb" ]; then
 	install -m 0755 "$ROOT/dist/p2pcweb" "$DATA/usr/bin/p2pcweb"
+# 出厂预接线脚本(Beam↔Box 地址与专用 API Key 预置)⇒ 与 p2pcweb 同在 /usr/bin
+	install -m 0755 "$ROOT/openwrt/prewire_beam_box" "$DATA/usr/bin/prewire_beam_box"
 fi
 cp -R "$ROOT/dist/www/." "$DATA/usr/share/pigeonbox/www/"
 install -m 0644 "$ROOT/openwrt/pigeonbox.config" "$DATA/etc/config/pigeonbox"
