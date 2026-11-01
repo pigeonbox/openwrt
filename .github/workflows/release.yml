@@ -84,7 +84,7 @@ jobs:
           ./scripts/fetch-p2pc.sh "$triple" dist
           # pb CLI 随包（server 同号 tag 源码编译 ⇒ 与 server Release 无竞态）
           ./scripts/fetch-pb.sh "$triple" dist
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
       - name: 前端构建 + 双格式打包(ipk + 签名 apk)

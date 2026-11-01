@@ -75,7 +75,7 @@ jobs:
       - name: 构建随包 pb CLI(server 同号 tag 源码)
         if: always()
         run: ./scripts/fetch-pb.sh x86_64-unknown-linux-gnu dist
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
       - name: 构建前端 + 组装双格式包
@@ -124,7 +124,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
       # npm ci 走网络 ⇒ 偶发失败 ⇒ 加 --fetch-retries 让它自愈重试
