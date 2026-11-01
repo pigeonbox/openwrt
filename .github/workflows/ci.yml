@@ -54,6 +54,11 @@ jobs:
             -o dist/pigeonbox ./cmd/pigeonbox
       # 钉版构建守卫（2026-10-26 审计 P2）：产物里的 core 版本必须 == DEPS.env
       # CORE_PIN；自证负对照=工作区构建显示 (devel) ⇒ GOWORK=off 是必需的。
+      # 真机复验脚本是 **openwrt#110 关单的证据工具** ⇒ 判据必须能判红
+      # ⇒ 用假设备（假 init.d/LuCI/curl/pgrep/id）驱动脚本自己
+      # ⇒ 正常态绿、每条异常态都红、非 root 报「无法判定」。
+      - name: 真机复验脚本判据自证（假设备必须逐条判红）
+        run: bash scripts/verify-openwrt-runtime.sh --selfcheck
       # 出厂预接线（Beam↔Box 地址与专用 API Key）自测（2026-11-01）：
       # 预接线干两件**错了也不会有人喊**的事——① 建/复用一把 Box API Key；
       # ② 把地址+Key 写进 p2pcweb 配置。若它「每次启动都建一把新 Key」，
@@ -62,7 +67,6 @@ jobs:
       # 本自测跑**真脚本**（假 Box + 假 p2pcweb），并带**变异负对照**证明判据有牙齿。
       - name: Beam 出厂预接线自测（幂等 + scope 精确 + 不冲 registry + 等就绪）
         run: bash scripts/prewire-beam-box-selftest.sh
-
       - name: 钉版构建守卫(core 版本 == DEPS.env CORE_PIN)
         if: always()
         run: bash scripts/check-build-pin.sh
@@ -143,7 +147,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: packages-x86_64
           path: dist
@@ -183,7 +187,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: packages-x86_64
           path: dist
