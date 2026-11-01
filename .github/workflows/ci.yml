@@ -89,10 +89,16 @@ jobs:
       - name: 包内文件清单断言(ipk 必须含 usr/bin/p2pc 与 p2pcweb)
         if: always()
         run: |
+          # ⚠️ **CI 阶段不断言 usr/bin/pb**（2026-11-01）：
+          # 此时 **server 的同号 tag 还不存在**（列车的 tag 阶段在 bump PR 全合之后）
+          # ⇒ 本端从 server 源码编 pb 必然失败 ⇒ 包里确实没有 pb。
+          # ⇒ 若此处硬断 ⇒ **bump PR 永远合不进去 ⇒ 列车死锁**。
+          # ⇒ 「发布出去的包必须含 pb」的**真正断言点**在 release.yml
+          #   （tag push 触发，那时 server tag 已可见 —— hub#232 加了顺序保证）。
           ./scripts/assert-pkg-contents.sh dist/pigeonbox_0.0.0-1_x86_64.ipk \
-            usr/bin/pigeonbox usr/bin/p2pc usr/bin/p2pcweb usr/bin/pb etc/init.d/pigeonbox
+            usr/bin/pigeonbox usr/bin/p2pc usr/bin/p2pcweb etc/init.d/pigeonbox
           ./scripts/assert-pkg-contents.sh dist/pigeonbox_0.0.1-1_x86_64.ipk \
-            usr/bin/pigeonbox usr/bin/p2pc usr/bin/p2pcweb usr/bin/pb
+            usr/bin/pigeonbox usr/bin/p2pc usr/bin/p2pcweb
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: packages-x86_64
