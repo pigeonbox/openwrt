@@ -6,14 +6,14 @@
 				"luci": ["getInitList"],
 				"service": ["list"]
 			},
-			"uci": ["^pigeonbox$"]
+			"uci": ["pigeonbox"]
 		},
 		"write": {
 			"ubus": {
 				"file": ["exec"],
 				"uci": ["apply", "confirm"]
 			},
-			"uci": ["^pigeonbox$"],
+			"uci": ["pigeonbox"],
 			"file": {
 				"/etc/init.d/pigeonbox": ["exec"]
 			}
