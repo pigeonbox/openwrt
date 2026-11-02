@@ -132,8 +132,9 @@ return view.extend({
 		o.datatype = 'host';
 		o.rmempty = false;
 
-		o = s.option(form.Value, 'data_dir', _('数据目录'), _('SQLite/上传文件/JWT 密钥所在;更改后新数据写入新目录,**已有数据不会自动迁移**;大量文件建议指到数据盘(如 /mnt/sda1/pigeonbox)'));
-		o.rmempty = false;
+		o = s.option(form.Value, 'data_dir', _('数据目录'), _('SQLite/上传文件/JWT 密钥所在;留空=启动时自动选定并回填(已有 /etc/pigeonbox/data 则沿用不搬家,否则 iStoreOS Configs 目录或数据盘 /mnt/xxx/Configs/Pigeonbox);更改后新数据写入新目录,**已有数据不会自动迁移**'));
+		o.placeholder = '/etc/pigeonbox/data';
+		o.rmempty = true;
 
 		o = s.option(form.Flag, 'open_upload', _('允许匿名上传'), _('关闭后仅登录用户可创建分享'));
 

@@ -67,6 +67,11 @@ jobs:
       # 本自测跑**真脚本**（假 Box + 假 p2pcweb），并带**变异负对照**证明判据有牙齿。
       - name: Beam 出厂预接线自测（幂等 + scope 精确 + 不冲 registry + 等就绪）
         run: bash scripts/prewire-beam-box-selftest.sh
+      # iStore 上架 review（linkease/istore-repo#810）修复守卫：两类真机复现过的缺陷
+      # （procd_set_param args 静默丢参 / LuCI ACL uci 项 ^pigeonbox$ 匹配不到配置名）
+      # 当时 CI 全绿 ⇒ 必须有能判红的静态判据 + 变异自证。
+      - name: iStore review 修复守卫（init 参数形态 + LuCI ACL 形态，自证判红）
+        run: bash scripts/check-istore-review.sh --selfcheck
       - name: 钉版构建守卫(core 版本 == DEPS.env CORE_PIN)
         if: always()
         run: bash scripts/check-build-pin.sh
