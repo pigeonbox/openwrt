@@ -53,7 +53,11 @@ check_tree() {
 
 selfcheck() {
 	tmp="$(mktemp -d)" || exit 1
-	trap 'rm -rf "$tmp"' EXIT
+	OK=0
+	# 成功哨兵（hub 门禁 check-shell-trap-exit-code.sh）：trap 必须保留退出码。
+	# rc=0 且 OK≠1 ⇒ 没跑到结尾却没留失败码（bash 3.2 未定义变量坑）⇒ 判失败。
+	# shellcheck disable=SC2154  # rc/OK 在 trap 体内引用，静态看不见
+	trap 'rc=$?; rm -rf "$tmp"; if [ "$rc" -ne 0 ]; then exit "$rc"; fi; if [ "${OK:-0}" != 1 ]; then exit 1; fi; exit 0' EXIT
 	mkdir -p "$tmp/openwrt" "$tmp/luci/acl.d"
 
 	ok=0
@@ -98,6 +102,7 @@ selfcheck() {
 
 	if [ "$ok" -eq 0 ]; then
 		echo "✓ 自证：正常态绿、每类违规态都红 ⇒ 判据有牙齿"
+		OK=1
 	fi
 	return "$ok"
 }
