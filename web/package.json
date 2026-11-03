@@ -8,7 +8,7 @@
     "typecheck": "vue-tsc --noEmit -p tsconfig.app.json"
   },
   "dependencies": {
-    "@pigeonbox/frontend-core": "https://github.com/pigeonbox/frontend-core/releases/download/v0.12.0/pigeonbox-frontend-core-0.12.0.tgz"
+    "@pigeonbox/frontend-core": "https://github.com/pigeonbox/frontend-core/releases/download/v0.12.1/pigeonbox-frontend-core-0.12.1.tgz"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
