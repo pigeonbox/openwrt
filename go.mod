@@ -8,7 +8,7 @@ require (
 	github.com/cloudwego/hertz v0.10.6
 	github.com/glebarez/go-sqlite v1.22.0
 	github.com/oekit/core v0.12.1
-	github.com/pigeonbox/core v0.33.2
+	github.com/pigeonbox/core v0.33.3
 	github.com/stretchr/testify v1.12.1
 	go.uber.org/zap v1.28.0
 	golang.org/x/crypto v0.58.0
