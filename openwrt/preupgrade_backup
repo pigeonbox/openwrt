@@ -1,0 +1,153 @@
+#!/bin/sh
+# PigeonBox 升级前业务库快照(OpenWrt / iStoreOS,5.4.1)
+#
+# 谁调:ipk 的 postinst 与 apk 的 post-install / post-upgrade。
+# 这两个时机都是「**新文件已就位、服务已停**(prerm / 卸载前先 stop)、服务尚未重新拉起」⇒
+#   ① 库是静止的,不必再 stop 服务;
+#   ② 快照必须跑在 `/etc/init.d/pigeonbox restart` **之前**——新二进制启动时会做迁移/建表,
+#      跑在重启之后拍的已经是升级后的库,等于没备份。
+#
+# 与 DSM preupgrade / QTS pkg_pre_install 的**有意差异:这里失败绝不中止安装**:
+#   ① 本脚本跑在新二进制就位之后:此时 abort 已无法回滚文件,只会把服务留在停机状态
+#      ⇒ 用户看到「升级失败」,实际包已换、服务不起,比没备份更糟。
+#   ② 路由器 overlay 常只有几十 MB:flash 写满时 abort 是**死结**(每次升级都失败,
+#      而失败的升级又不清理旧文件 ⇒ 越升越死)。
+#   ⇒ 口径是 best-effort + **响亮日志**(stderr + syslog),**退出码恒 0**。
+#
+# 空间守卫(OpenWrt 特有,DSM/QTS 不需要):先算需求再动手,空间不足就跳过并记日志——
+#   宁可不备份,也不要把 overlay 写满(写满会让整台路由器异常:装不了包、写不动日志)。
+#
+# 命名/轮转与另外三端统一(升级路径口径一致才好写文档):
+#   <db>.bak-<YYYYMMDD-HHMMSS>,保留最近 N 份(默认 3),**按文件名排序**淘汰
+#   (定宽时间戳 ⇒ 字典序即时间序;mtime 会被 cp -a / 备份还原 / 时钟跳变改掉)。
+#
+# 可调项(一般不需要改):
+#   PB_PREUPGRADE_KEEP         保留份数,默认 3
+#   PB_PREUPGRADE_MIN_FREE_KB  至少保证的空闲空间(KB),默认 1024
+#   PB_PREUPGRADE_DB           直接指定库文件路径(数据目录不在下列标准位置时用)
+
+KEEP="${PB_PREUPGRADE_KEEP:-3}"
+case "$KEEP" in
+'' | *[!0-9]*) KEEP=3 ;;
+esac
+[ "$KEEP" -ge 1 ] || KEEP=3
+
+MIN_FREE_KB="${PB_PREUPGRADE_MIN_FREE_KB:-1024}"
+case "$MIN_FREE_KB" in
+'' | *[!0-9]*) MIN_FREE_KB=1024 ;;
+esac
+
+# 日志双写:stderr 让 opkg/apk/LuCI 的安装输出里当场可见;logger 让事后
+# `logread -e pigeonbox-upgrade` 能查(升级失败时最常见的排障入口)。
+# /dev/log 不存在时跳过 logger(macOS/容器里没有 syslogd,避免噪音)。
+log() {
+	printf 'pigeonbox-upgrade: %s
+' "$*" >&2
+	if [ -S /dev/log ] && command -v logger >/dev/null 2>&1; then
+		logger -t pigeonbox-upgrade "$*" 2>/dev/null
+	fi
+}
+
+# 解析库路径。候选顺序与 openwrt/pigeonbox.init 的 resolve_default_data_dir 同构,
+# 但**只看已存在的库**、且**不回填 UCI**(选址与固化是 init 的职责,钩子里做会产生
+# 与首次启动不一致的副作用;升级场景 UCI 早已固化)。
+resolve_db() {
+	# ① 显式指定(排障/自定义部署)
+	if [ -n "${PB_PREUPGRADE_DB:-}" ]; then
+		printf '%s\n' "$PB_PREUPGRADE_DB"
+		return 0
+	fi
+	# ② UCI 固化值(init 首次启动后回填,真相源)
+	uci_dir=""
+	if command -v uci >/dev/null 2>&1; then
+		uci_dir="$(uci -q get pigeonbox.main.data_dir 2>/dev/null)"
+	fi
+	if [ -n "$uci_dir" ] && [ -f "$uci_dir/fileCodeBox.db" ]; then
+		printf '%s\n' "$uci_dir/fileCodeBox.db"
+		return 0
+	fi
+	# ③ init 的规则 0:存量 /etc/pigeonbox/data 优先于一切自动选址
+	if [ -f /etc/pigeonbox/data/fileCodeBox.db ]; then
+		printf '%s\n' /etc/pigeonbox/data/fileCodeBox.db
+		return 0
+	fi
+	# ④ iStoreOS quickstart 指定的 Configs 目录
+	qs_dir=""
+	if command -v uci >/dev/null 2>&1; then
+		qs_dir="$(uci -q get quickstart.main.conf_dir 2>/dev/null)"
+	fi
+	if [ -n "$qs_dir" ] && [ -f "$qs_dir/Pigeonbox/fileCodeBox.db" ]; then
+		printf '%s\n' "$qs_dir/Pigeonbox/fileCodeBox.db"
+		return 0
+	fi
+	# ⑤ 首个数据盘上的自动选址目录
+	for mnt_dir in /mnt/*/Configs/Pigeonbox; do
+		if [ -f "$mnt_dir/fileCodeBox.db" ]; then
+			printf '%s\n' "$mnt_dir/fileCodeBox.db"
+			return 0
+		fi
+	done
+	return 1
+}
+
+DB="$(resolve_db)"
+if [ -z "${DB:-}" ] || [ ! -f "$DB" ]; then
+	log "没有存量业务库,跳过升级前快照(全新安装时属正常)"
+	exit 0
+fi
+
+DB_DIR="$(dirname "$DB")"
+
+# ---- 空间守卫 ----
+size_kb="$(du -k "$DB" 2>/dev/null | awk 'NR==1 {print $1}')"
+case "$size_kb" in
+'' | *[!0-9]*) size_kb=0 ;;
+esac
+avail_kb="$(df -k "$DB_DIR" 2>/dev/null | awk 'NR==2 {print $4}')"
+case "$avail_kb" in
+'' | *[!0-9]*) avail_kb=0 ;;
+esac
+# 需要:再放一份完整库(2× 留余量)+ 下限保护。
+need_kb=$((size_kb * 2))
+[ "$need_kb" -ge "$MIN_FREE_KB" ] || need_kb="$MIN_FREE_KB"
+if [ "$avail_kb" -lt "$need_kb" ]; then
+	log "可用空间不足(${avail_kb}KB < 需要 ${need_kb}KB;数据目录 $DB_DIR),跳过升级前快照"
+	exit 0
+fi
+
+STAMP="$(date '+%Y%m%d-%H%M%S')"
+BAK="${DB}.bak-${STAMP}"
+# 同一秒内被调两次(异常重入)时不覆盖已写好的快照
+if [ -f "$BAK" ]; then
+	log "本秒已有快照 ${BAK},跳过重复备份"
+	exit 0
+fi
+
+if ! cp -p "$DB" "$BAK" 2>/dev/null; then
+	log "快照失败:${DB} -> ${BAK}(升级继续;业务库未改动)"
+	exit 0
+fi
+
+# ---- 校验:逐字节比对(cmp 缺失时退化比大小)——静默截断的「备份」比没有备份更危险 ----
+verify_ok=1
+if command -v cmp >/dev/null 2>&1; then
+	cmp -s "$DB" "$BAK" || verify_ok=0
+else
+	[ "$(wc -c <"$DB")" = "$(wc -c <"$BAK")" ] || verify_ok=0
+fi
+if [ "$verify_ok" != 1 ]; then
+	rm -f "$BAK"
+	log "快照校验失败(与源库不一致),已删除残缺快照 ${BAK};升级继续"
+	exit 0
+fi
+
+# ---- 轮转:只留最近 KEEP 份(按文件名排序 ⇒ 定宽时间戳字典序=时间序) ----
+for old in "${DB}".bak-*; do
+	[ -f "$old" ] || continue
+	printf '%s\n' "$old"
+done | sort -r | tail -n +$((KEEP + 1)) | while read -r f; do
+	rm -f "$f"
+done
+
+log "已生成升级前快照 ${BAK}(${size_kb}KB,保留 ${KEEP} 份)"
+exit 0
