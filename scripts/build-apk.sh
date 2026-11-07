@@ -34,6 +34,7 @@ install -d "$DATA/usr/bin" \
 	"$DATA/usr/share/pigeonbox/www" \
 	"$DATA/etc/config" \
 	"$DATA/etc/init.d" \
+	"$DATA/usr/lib/pigeonbox" \
 	"$DATA/usr/share/luci/menu.d" \
 	"$DATA/usr/share/rpcd/acl.d" \
 	"$DATA/www/luci-static/resources/view/pigeonbox"
@@ -62,6 +63,9 @@ fi
 cp -R "$ROOT/dist/www/." "$DATA/usr/share/pigeonbox/www/"
 install -m 0644 "$ROOT/openwrt/pigeonbox.config" "$DATA/etc/config/pigeonbox"
 install -m 0755 "$ROOT/openwrt/pigeonbox.init" "$DATA/etc/init.d/pigeonbox"
+# 升级前业务库快照(5.4.1):post-install/post-upgrade 在 restart 之前调用它。
+# 同 ipk:钩子依赖的文件必须装进包,否则钩子静默跳过而没人发现。
+install -m 0755 "$ROOT/openwrt/preupgrade_backup" "$DATA/usr/lib/pigeonbox/preupgrade_backup"
 # LuCI 入口页(服务→PigeonBox:状态+新窗口打开 UI)
 install -m 0644 "$ROOT/luci/menu.d/luci-app-pigeonbox.json" "$DATA/usr/share/luci/menu.d/"
 install -m 0644 "$ROOT/luci/acl.d/luci-app-pigeonbox.json" "$DATA/usr/share/rpcd/acl.d/"

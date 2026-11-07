@@ -2,6 +2,14 @@
 # apk 包 post-install:安装完成后启用并启动(与 ipk postinst 行为对齐)。
 # apk3 由 apk 自身执行本脚本(--script post-install);OpenWrt apk 信任模型下
 # /etc 下的改动(apk 改写 rc.d 符号链接之外的部分)天然受保护路径语义保护。
+
+# 升级前业务库快照(5.4.1):本脚本同时挂 post-install 与 post-upgrade ⇒ 升级路径也会
+# 走到。必须在 `init.d restart` 之前跑(否则拍到的是迁移后的库),此刻旧包已 stop 过
+# 服务 ⇒ 库静止。脚本 best-effort、退出码恒 0,绝不让安装失败(理由见其文件头)。
+if [ -x /usr/lib/pigeonbox/preupgrade_backup ]; then
+	/usr/lib/pigeonbox/preupgrade_backup
+fi
+
 if [ -x /etc/init.d/redis ]; then
 	/etc/init.d/redis enabled 2>/dev/null || /etc/init.d/redis enable
 	/etc/init.d/redis start 2>/dev/null

@@ -2,6 +2,14 @@
 # ipk postinst:启用并启动(装完即用;镜像构建场景 IPKG_INSTROOT 非空时跳过)
 [ -n "${IPKG_INSTROOT:-}" ] && exit 0
 
+# 升级前业务库快照(5.4.1)必须放在**拉起服务之前**:新二进制启动时会做迁移/建表,
+# 跑在 restart 之后拍的已经是升级后的库(等于没备份)。此刻 prerm 已 stop 过服务
+# ⇒ 库静止。脚本自身 best-effort、退出码恒 0(理由见其文件头:postinst 阶段 abort
+# 只会把服务留在停机状态,且 flash 写满时 abort 是死结)。
+if [ -x /usr/lib/pigeonbox/preupgrade_backup ]; then
+	/usr/lib/pigeonbox/preupgrade_backup
+fi
+
 # 依赖的 redis 默认不随包自启,这里一并启用
 if [ -x /etc/init.d/redis ]; then
 	/etc/init.d/redis enabled 2>/dev/null || /etc/init.d/redis enable

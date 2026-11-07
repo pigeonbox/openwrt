@@ -72,6 +72,11 @@ jobs:
       # 当时 CI 全绿 ⇒ 必须有能判红的静态判据 + 变异自证。
       - name: iStore review 修复守卫（init 参数形态 + LuCI ACL 形态，自证判红）
         run: bash scripts/check-istore-review.sh --selfcheck
+      # 升级前自动备份钩子(5.4.1):失败**有意不中止安装**(postinst 阶段 abort 只会把
+      # 服务留在停机状态;flash 写满时 abort 是死结)⇒ 「快照没生成」与「生成了」
+      # 在真机上看起来一模一样 ⇒ 必须有能判红的机械化判据 + 变异负对照。
+      - name: 升级前备份钩子自测(轮转/空间守卫/不中止/截断校验/ UCI 解析,自证判红)
+        run: bash scripts/preupgrade-backup-selftest.sh --selfcheck
       - name: 钉版构建守卫(core 版本 == DEPS.env CORE_PIN)
         if: always()
         run: bash scripts/check-build-pin.sh
@@ -113,10 +118,17 @@ jobs:
           # ⇒ 若此处硬断 ⇒ **bump PR 永远合不进去 ⇒ 列车死锁**。
           # ⇒ 「发布出去的包必须含 pb」的**真正断言点**在 release.yml
           #   （tag push 触发，那时 server tag 已可见 —— hub#232 加了顺序保证）。
+          # ⚠️ usr/lib/pigeonbox/preupgrade_backup(5.4.1)**必须在这里断言**:
+          #   它是 postinst 依赖的钩子文件,漏装时钩子 [ -x ] 不成立 ⇒ **静默跳过**,
+          #   「升级前自动备份」变成文档里的空头承诺,而真机升级/冒烟全绿。
+          #   与 2026-10-26 那次 p2pc P1 同一类失效模式(断言只看运行时存在性不够,
+          #   必须断言**包内文件清单**)。
           ./scripts/assert-pkg-contents.sh dist/pigeonbox_0.0.0-1_x86_64.ipk \
-            usr/bin/pigeonbox usr/bin/p2pc usr/bin/p2pcweb usr/bin/prewire_beam_box etc/init.d/pigeonbox
+            usr/bin/pigeonbox usr/bin/p2pc usr/bin/p2pcweb usr/bin/prewire_beam_box \
+            usr/lib/pigeonbox/preupgrade_backup etc/init.d/pigeonbox
           ./scripts/assert-pkg-contents.sh dist/pigeonbox_0.0.1-1_x86_64.ipk \
-            usr/bin/pigeonbox usr/bin/p2pc usr/bin/p2pcweb usr/bin/prewire_beam_box
+            usr/bin/pigeonbox usr/bin/p2pc usr/bin/p2pcweb usr/bin/prewire_beam_box \
+            usr/lib/pigeonbox/preupgrade_backup
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: packages-x86_64
@@ -181,6 +193,20 @@ jobs:
             sleep 3
             wget -qO- http://127.0.0.1:12345/ping
             test -x /usr/bin/p2pc
+            # 升级前自动备份(5.4.1):**真实升级**后必须留下升级前的业务库快照。
+            # 断言只能放在第二次安装之后——首装时库里还没有业务库,钩子按设计静默
+            # 跳过;只有升级才有可备份对象。负对照:把 postinst 里的钩子调用注释掉
+            # ⇒ 本步必须红。
+            test -x /usr/lib/pigeonbox/preupgrade_backup
+            bak_found=""
+            for bak_dir in "$(uci -q get pigeonbox.main.data_dir 2>/dev/null || true)" /etc/pigeonbox/data; do
+              [ -n "$bak_dir" ] || continue
+              for bak_f in "$bak_dir"/fileCodeBox.db.bak-*; do
+                [ -f "$bak_f" ] && bak_found="$bak_f"
+              done
+            done
+            test -n "$bak_found"
+            echo "升级前快照: $bak_found"
           '
           docker rm -f fcb-smoke
 
@@ -220,5 +246,18 @@ jobs:
             sleep 3
             wget -qO- http://127.0.0.1:12345/ping
             test -x /usr/bin/p2pc
+            # 升级前自动备份(5.4.1):post-install 同时挂在 post-upgrade 上 ⇒
+            # apk 升级路径也必须留下升级前快照。ADB 包无法 tar 解包列清单,
+            # 故 apk 侧的「包内含该文件」与「升级时确实跑了」在这里一并断言。
+            test -x /usr/lib/pigeonbox/preupgrade_backup
+            bak_found=""
+            for bak_dir in "$(uci -q get pigeonbox.main.data_dir 2>/dev/null || true)" /etc/pigeonbox/data; do
+              [ -n "$bak_dir" ] || continue
+              for bak_f in "$bak_dir"/fileCodeBox.db.bak-*; do
+                [ -f "$bak_f" ] && bak_found="$bak_f"
+              done
+            done
+            test -n "$bak_found"
+            echo "升级前快照: $bak_found"
           '
           docker rm -f fcb-smoke-apk
