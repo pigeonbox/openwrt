@@ -56,13 +56,13 @@ jobs:
             grep -q "github.com/pigeonbox/core ${CORE_PIN}" go.mod || { echo "::error::go.mod core 钉版 ≠ DEPS.env CORE_PIN=${CORE_PIN}(fnos v1.2.7 悬空钉版守卫)"; exit 1; }
           fi
       # 前端自包含在本仓 web/(frontend-core tgz 钉版=web/package.json),无需读壳仓 ref
-      # go-version 精确钉到 1.26.10(= go.mod 的 toolchain 地板;浮动 "1.26"
+      # go-version 精确钉到 1.26.11(= go.mod 的 toolchain 地板;浮动 "1.26"
       # ⇒ runner 实际拿到的 patch 版本不保证 ≥ 地板 ⇒ 构建直接失败)。
       # GOTOOLCHAIN=auto:将来 setup-go 升到 v7(强制 GOTOOLCHAIN=local)时
       # 地板再抬也能自动拉取,而不是构建失败。
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: "1.26.10"
+          go-version: "1.26.11"
       - name: 交叉编译(CGO_ENABLED=0,纯 Go sqlite)
         run: |
           # GOWORK=off:钉版构建(否则在 hub 工作区里会联编本地 core ⇒ 版本幽灵)
