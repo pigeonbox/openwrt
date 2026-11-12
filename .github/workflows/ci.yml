@@ -19,13 +19,13 @@ jobs:
       GOTOOLCHAIN: auto # 覆盖 setup-go v7 强制的 GOTOOLCHAIN=local,地板再抬时自动拉取
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      # go-version 精确钉到 1.26.10(= go.mod 的 toolchain 地板;浮动 "1.26"
+      # go-version 精确钉到 1.26.11(= go.mod 的 toolchain 地板;浮动 "1.26"
       # ⇒ runner 实际拿到的 patch 版本不保证 ≥ 地板 ⇒ 构建直接失败)。
       # GOTOOLCHAIN=auto:将来 setup-go 升到 v7(强制 GOTOOLCHAIN=local)时
       # 地板再抬也能自动拉取,而不是构建失败。
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: "1.26.10"
+          go-version: "1.26.11"
       # gofmt 门禁（2026-10-24 补）：此前 openwrt 仓的 CI **没有 gofmt 步**
       # （core/server/p2p/contracts/fnos 早已有）⇒ 格式漂移无人拦。
       # **发现即红，修法是 gofmt -w**，不设豁免。
