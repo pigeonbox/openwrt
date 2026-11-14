@@ -2,5 +2,19 @@
 # ipk prerm:升级/卸载前停服务(升级后由新包 postinst 重新拉起)
 # 卸载不删数据:/etc/pigeonbox/ 保留,彻底清除请手动删除该目录
 [ -n "${IPKG_INSTROOT:-}" ] && exit 0
-/etc/init.d/pigeonbox stop 2>/dev/null
+
+# 停服失败必须可见(openwrt#200):此前 `stop 2>/dev/null` + 恒 exit 0 ⇒ 旧进程
+# 没停时没有任何信号(升级=旧进程持旧 inode 继续跑;卸载=文件删了进程还在跑、
+# 端口仍被占,用户看到「卸载了还在跑」)。⇒ 去掉 2>/dev/null 让 stop 自身报错进
+# 安装输出,失败时另加 logger + stderr 告警。
+# **有意保持 exit 0**:prerm 非 0 会中止升级/卸载——停不掉的服务把升级一起
+# 卡死反而更糟(与 preupgrade_backup「升级钩子失败不中止」同口径:升级钩子的
+# 失败语义按平台可控性区分,本钩子不中止)。失败留痕由上面的 logger 承担,
+# 「服务未配置」(/etc/init.d/pigeonbox 缺失)时没东西可停,跳过不告警。
+if [ -x /etc/init.d/pigeonbox ]; then
+	if ! /etc/init.d/pigeonbox stop; then
+		logger -t pigeonbox -p daemon.err "prerm: pigeonbox 停服失败——旧进程可能仍在运行(升级/卸载后端口可能仍被占)。诊断: logread -e pigeonbox;检查: ps | grep pigeonbox"
+		echo "pigeonbox: 停服失败,旧进程可能仍在运行。诊断: logread -e pigeonbox" >&2
+	fi
+fi
 exit 0

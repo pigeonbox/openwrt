@@ -34,6 +34,8 @@ CMD_PGREP="${PB_CMD_PGREP:-pgrep}"
 CMD_ID="${PB_CMD_ID:-id}"
 INITD_DIR="${PB_INITD_DIR:-/etc/init.d}"
 LUCI_DIR="${PB_LUCI_DIR:-/usr/lib/lua/luci}"
+# 配置文件路径(openwrt#199 权限判据;可注入 ⇒ selfcheck 能驱动异常态)
+PIGEONBOX_CONFIG="${PB_PIGEONBOX_CONFIG:-/etc/config/pigeonbox}"
 # redis 是否存在（默认按真机探测；自证时可显式设 0 模拟「本机无 redis-server」）
 if [ -n "${PB_REDIS_PRESENT:-}" ]; then
   REDIS_PRESENT="$PB_REDIS_PRESENT"
@@ -56,6 +58,12 @@ record() {
     skip) RESULTS+=("SKIP | $2 | $3") ;;
   esac
   printf '  [%s] %s — %s\n' "$1" "$2" "$3"
+}
+
+# 文件权限位,取值如 600/644(GNU/BSD stat 双兼容;都取不到返回 unknown ⇒ 判红,
+# fail-closed——OpenWrt 真机 BusyBox 有 stat -c,mac selfcheck 走 BSD stat -f)
+file_mode() {
+  stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1" 2>/dev/null || echo unknown
 }
 
 # ── 自证模式：证明每条判据**能判红** ──────────────────────────────────────
@@ -126,11 +134,17 @@ ID_EOF
   # 假 LuCI controller：PB_FAKE_LUCI=none ⇒ 目录里没有 pigeonbox
   : > "$LUCI/controller/pigeonbox.lua"
 
+  # 假 UCI 配置(openwrt#199):默认 600=正常态;异常态改 644 ⇒ 权限判据必须判红
+  mkdir -p "$SELF_DIR/config"
+  : > "$SELF_DIR/config/pigeonbox"
+  chmod 600 "$SELF_DIR/config/pigeonbox"
+
   run_case() { # run_case <额外 env 赋值...> ⇒ 打印退出码
     local out rc
     out=$(env "$@" \
       PB_CMD_CURL="$FAKE/curl" PB_CMD_PGREP="$FAKE/pgrep" PB_CMD_ID="$FAKE/id" \
       PB_INITD_DIR="$INITD" PB_LUCI_DIR="$LUCI" PB_REDIS_PRESENT=1 \
+      PB_PIGEONBOX_CONFIG="$SELF_DIR/config/pigeonbox" \
       bash "$0" pigeonbox 2>&1)
     rc=$?
     printf '%s' "$out"
@@ -153,7 +167,8 @@ ID_EOF
     "依赖 redis 未运行:PB_FAKE_REDIS=no" \
     "LuCI 缺 controller:PB_FAKE_LUCI=none" \
     "公开端点非 200:PB_FAKE_CURL=public401" \
-    "?password= 仍被接受:PB_FAKE_CURL=query200"; do
+    "?password= 仍被接受:PB_FAKE_CURL=query200" \
+    "配置文件权限非 600:PB_FAKE_CONFIG_MODE=644"; do
     label="${spec%%:*}"
     kv="${spec#*:}"
     key="${kv%%=*}"
@@ -163,6 +178,11 @@ ID_EOF
       mv "$LUCI/controller/pigeonbox.lua" "$SELF_DIR/pigeonbox.lua.bak"
       out=$(run_case PB_FAKE_LUCI=none); rc=$?
       mv "$SELF_DIR/pigeonbox.lua.bak" "$LUCI/controller/pigeonbox.lua"
+    elif [ "$key" = "PB_FAKE_CONFIG_MODE" ]; then
+      # 权限判据:把假配置改成 644 ⇒ 必须判红,跑完恢复 600(正常态不受污染)
+      chmod "$val" "$SELF_DIR/config/pigeonbox"
+      out=$(run_case); rc=$?
+      chmod 600 "$SELF_DIR/config/pigeonbox"
     else
       out=$(run_case "$key=$val"); rc=$?
     fi
@@ -181,6 +201,32 @@ ID_EOF
     echo "  ✗ 非 root 应退出 2（无法判定），实际 $rc" >&2; fail=1
   else
     echo "  ✓ 非 root ⇒ 退出码 2（无法判定 ≠ 通过）"
+  fi
+
+  # ⑨ 静态守卫(openwrt#199):两个安装钩子必须把配置收紧到 600 —— 安装钩子是
+  #   权限的唯一收紧点(opkg/apk 升级会把 conffile 打回包内 0644;实测 uci commit
+  #   不改权限位,故 LuCI 保存不会自己收紧也不会打回),钩子里的 chmod 被删掉时
+  #   真机上要等复验才发现 ⇒ 这里对钩子本体断言。
+  #   变异负对照:临时副本上删掉 chmod 行 ⇒ 守卫必须判红(证明判据有牙齿)。
+  hook_guard() { # $1=钩子文件;0=含「chmod 600 …/etc/config/pigeonbox」
+    grep -Eq 'chmod[[:space:]]+600[[:space:]].*/etc/config/pigeonbox' "$1"
+  }
+  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+  for hf in "$SCRIPT_DIR/../openwrt/pigeonbox.postinst" "$SCRIPT_DIR/../openwrt/pigeonbox.post-install"; do
+    if hook_guard "$hf"; then
+      echo "  ✓ 静态守卫「$(basename "$hf")」含 chmod 600 配置收紧"
+    else
+      echo "  ✗ 静态守卫「$(basename "$hf")」缺 chmod 600 配置收紧(openwrt#199)" >&2
+      fail=1
+    fi
+  done
+  sed 's/^[[:space:]]*chmod[[:space:]][[:space:]]*600[[:space:]].*//' \
+    "$SCRIPT_DIR/../openwrt/pigeonbox.postinst" > "$SELF_DIR/hook-mutated"
+  if hook_guard "$SELF_DIR/hook-mutated"; then
+    echo "  ✗ 变异负对照:去掉 chmod 行后守卫仍绿(判据无牙齿)" >&2
+    fail=1
+  else
+    echo "  ✓ 变异负对照:去掉 chmod 行 ⇒ 守卫判红"
   fi
 
   if [ "$fail" -ne 0 ]; then
@@ -249,6 +295,20 @@ if [ -d "${LUCI_DIR}" ]; then
   fi
 else
   record skip "LuCI 配置页" "无 ${LUCI_DIR}"
+fi
+
+# 配置文件权限(openwrt#199):明文管理员口令/Redis 密码存 UCI ⇒ 必须 600。
+# 文件不存在 ⇒ skip(未安装/非 OpenWrt 环境,不误红);存在但非 600 ⇒ 判红
+# (本地非特权进程可读明文口令)。安装钩子是唯一收紧点,本判据真机复验兜底。
+if [ -f "${PIGEONBOX_CONFIG}" ]; then
+  cfg_mode="$(file_mode "${PIGEONBOX_CONFIG}")"
+  if [ "${cfg_mode}" = "600" ]; then
+    record ok "配置权限" "${PIGEONBOX_CONFIG} = 600"
+  else
+    record no "配置权限" "${PIGEONBOX_CONFIG} = ${cfg_mode}(应 600;明文口令可被本地非特权进程读,openwrt#199)"
+  fi
+else
+  record skip "配置权限" "无 ${PIGEONBOX_CONFIG}(未安装或非 OpenWrt 环境)"
 fi
 
 # ── 要点 3：公开端点匿名可达 ───────────────────────────────────────────
