@@ -2,6 +2,17 @@
 # apk 包 post-install:安装完成后启用并启动(与 ipk postinst 行为对齐)。
 # apk3 由 apk 自身执行本脚本(--script post-install);OpenWrt apk 信任模型下
 # /etc 下的改动(apk 改写 rc.d 符号链接之外的部分)天然受保护路径语义保护。
+# 本脚本同时挂 post-install 与 post-upgrade(build-apk.sh)⇒ 升级路径也走这里。
+
+# 配置收紧(openwrt#199):/etc/config/pigeonbox 存明文管理员口令与 Redis 密码
+# (LuCI 表单保存即写进 UCI),打包是 0644 ⇒ 路由器上本地非特权进程可读。
+# ⇒ 装包即 chmod 600;conffile 升级后必须**重申**(apk 升级会用包内 0644 的
+# 新版 conffile 替换未本地修改的旧文件,权限被打回),本脚本挂 post-upgrade
+# ⇒ 每次升级都重申(幂等)。失败仅告警不中止安装。
+if [ -f /etc/config/pigeonbox ]; then
+	chmod 600 /etc/config/pigeonbox \
+		|| logger -t pigeonbox -p daemon.err "post-install: /etc/config/pigeonbox 收紧 600 失败,保持旧权限"
+fi
 
 # 升级前业务库快照(5.4.1):本脚本同时挂 post-install 与 post-upgrade ⇒ 升级路径也会
 # 走到。必须在 `init.d restart` 之前跑(否则拍到的是迁移后的库),此刻旧包已 stop 过
@@ -14,8 +25,23 @@ if [ -x /etc/init.d/redis ]; then
 	/etc/init.d/redis enabled 2>/dev/null || /etc/init.d/redis enable
 	/etc/init.d/redis start 2>/dev/null
 fi
-/etc/init.d/pigeonbox enabled 2>/dev/null || /etc/init.d/pigeonbox enable
-/etc/init.d/pigeonbox restart
-# 重载 rpcd 使新增的 LuCI ACL 生效(用户重登 LuCI 后菜单可见)
+
+# restart 失败必须可见(openwrt#198):此前无条件 exit 0 ⇒ apk add 报「安装成功」
+# 而服务没起。⇒ 失败时 logger + stderr 响亮告警,并以非 0 退出让 apk 标记
+# post-install 失败:服务本来就起不来,标记失败不会更糟。
+# 与 preupgrade_backup「恒 0 不中止」不冲突:那是备份钩子,本条是**启动失败被判红**。
+# 不判红的正常场景:①「服务未配置」——init 脚本缺失时没东西可启,跳过;
+# ②「服务未启用」——先 enable 再 restart,rc.common 的 restart 不查 enabled。
+pb_rc=0
+if [ -x /etc/init.d/pigeonbox ]; then
+	/etc/init.d/pigeonbox enabled 2>/dev/null || /etc/init.d/pigeonbox enable
+	if ! /etc/init.d/pigeonbox restart; then
+		pb_rc=1
+		logger -t pigeonbox -p daemon.err "post-install: pigeonbox restart 失败(配置损坏/端口占用/依赖异常?)——服务未运行。诊断: logread -e pigeonbox;补救: /etc/init.d/pigeonbox restart"
+		echo "pigeonbox: restart 失败,服务未运行。诊断: logread -e pigeonbox;补救: /etc/init.d/pigeonbox restart" >&2
+	fi
+fi
+
+# 重载 rpcd 使新增的 LuCI ACL 生效(用户重登 LuCI 后菜单可见);restart 失败也不跳过
 [ -x /etc/init.d/rpcd ] && /etc/init.d/rpcd restart 2>/dev/null
-exit 0
+exit "$pb_rc"

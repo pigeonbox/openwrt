@@ -180,6 +180,10 @@ jobs:
             opkg install /pkg/pigeonbox_0.0.0-1_x86_64.ipk
             sleep 3
             wget -qO- http://127.0.0.1:12345/ping
+            # 配置收紧(openwrt#199):明文管理员口令/Redis 密码存 UCI,打包 0644
+            # ⇒ 安装钩子必须收紧到 600(rootfs 无 stat applet ⇒ 用 ls -l 判据)。
+            # 负对照:去掉安装钩子里的 chmod ⇒ 本行必须红。
+            test "$(ls -l /etc/config/pigeonbox | cut -c1-10)" = "-rw-------"
             # notifies 表回归断言(env-only auto_migrate 门控曾致缺表 500,core v0.13.1 修)
             wget -qO- http://127.0.0.1:12345/notifies/active | grep -q "\"code\":0"
             logread | grep -i "redis initialized"
@@ -192,6 +196,9 @@ jobs:
             opkg install /pkg/pigeonbox_0.0.1-1_x86_64.ipk
             sleep 3
             wget -qO- http://127.0.0.1:12345/ping
+            # 升级路径的权限重申(openwrt#199):conffile 被包内 0644 新版替换后
+            # 安装钩子必须再收紧(去 chmod ⇒ 升级断言必红)
+            test "$(ls -l /etc/config/pigeonbox | cut -c1-10)" = "-rw-------"
             test -x /usr/bin/p2pc
             # 升级前自动备份(5.4.1):**真实升级**后必须留下升级前的业务库快照。
             # 断言只能放在第二次安装之后——首装时库里还没有业务库,钩子按设计静默
@@ -234,6 +241,10 @@ jobs:
             apk add --allow-untrusted /tmp/pigeonbox-0.0.0.apk
             sleep 3
             wget -qO- http://127.0.0.1:12345/ping
+            # 配置收紧(openwrt#199):明文管理员口令/Redis 密码存 UCI,打包 0644
+            # ⇒ 安装钩子必须收紧到 600(rootfs 无 stat applet ⇒ 用 ls -l 判据)。
+            # 负对照:去掉安装钩子里的 chmod ⇒ 本行必须红。
+            test "$(ls -l /etc/config/pigeonbox | cut -c1-10)" = "-rw-------"
             # notifies 表回归断言(env-only auto_migrate 门控曾致缺表 500,core v0.13.1 修)
             wget -qO- http://127.0.0.1:12345/notifies/active | grep -q "\"code\":0"
             logread | grep -i "redis initialized"
@@ -245,6 +256,9 @@ jobs:
             apk add --allow-untrusted /tmp/pigeonbox-0.0.1.apk
             sleep 3
             wget -qO- http://127.0.0.1:12345/ping
+            # 升级路径的权限重申(openwrt#199):conffile 被包内 0644 新版替换后
+            # 安装钩子必须再收紧(去 chmod ⇒ 升级断言必红)
+            test "$(ls -l /etc/config/pigeonbox | cut -c1-10)" = "-rw-------"
             test -x /usr/bin/p2pc
             # 升级前自动备份(5.4.1):post-install 同时挂在 post-upgrade 上 ⇒
             # apk 升级路径也必须留下升级前快照。ADB 包无法 tar 解包列清单,
