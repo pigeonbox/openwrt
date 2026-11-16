@@ -1,5 +1,17 @@
 #!/bin/sh
 # ipk postinst:启用并启动(装完即用;镜像构建场景 IPKG_INSTROOT 非空时跳过)
+
+# 配置收紧(openwrt#199):/etc/config/pigeonbox 存明文管理员口令与 Redis 密码
+# (LuCI 表单保存即写进 UCI),打包是 0644 ⇒ 路由器上本地非特权进程(dnsmasq/pppd
+# 等降权服务)可读。⇒ 装包即 chmod 600;conffile 升级后必须**重申**(opkg 不保证
+# 保留 conffile 的权限变更),故每次 postinst 都跑(幂等)。放在 INSTROOT 早退
+# 之前:离线镜像构建也要收紧(真机首启不会再跑本脚本)。失败仅告警不中止安装
+# ——权限没收紧不该把安装本身搞挂(收紧失败的可见性由 logger 与复验脚本承担)。
+if [ -f "${IPKG_INSTROOT:-}/etc/config/pigeonbox" ]; then
+	chmod 600 "${IPKG_INSTROOT:-}/etc/config/pigeonbox" \
+		|| logger -t pigeonbox -p daemon.err "postinst: /etc/config/pigeonbox 收紧 600 失败,保持旧权限"
+fi
+
 [ -n "${IPKG_INSTROOT:-}" ] && exit 0
 
 # 升级前业务库快照(5.4.1)必须放在**拉起服务之前**:新二进制启动时会做迁移/建表,
@@ -16,10 +28,27 @@ if [ -x /etc/init.d/redis ]; then
 	/etc/init.d/redis start 2>/dev/null
 fi
 
-/etc/init.d/pigeonbox enabled 2>/dev/null || /etc/init.d/pigeonbox enable
-/etc/init.d/pigeonbox restart
+# restart 失败必须可见(openwrt#198):此前无条件 exit 0 ⇒ opkg 报「安装成功」
+# 而服务没起,用户开页面才发现——正是「失败必须能判红、静默吞错」要防的形态。
+# ⇒ 失败时 logger + stderr 响亮告警(写明诊断与补救命令),并以非 0 退出让 opkg
+#   标记 postinst 失败:服务本来就起不来,标记失败不会更糟(不中止任何已有进程)。
+# 与 preupgrade_backup「恒 0 不中止」不冲突:那是备份钩子(abort 只会把服务留在
+# 停机状态),本条是**启动失败被判红**,两者是不同钩子的不同语义。
+# 不判红的正常场景:①「服务未配置」——/etc/init.d/pigeonbox 缺失(非常规安装)
+# 时没东西可启,跳过;②「服务未启用」——先 enable 再 restart,rc.common 的
+# restart 不查 enabled,且 start_service 对 main.enabled=0 直接成功返回。
+pb_rc=0
+if [ -x /etc/init.d/pigeonbox ]; then
+	/etc/init.d/pigeonbox enabled 2>/dev/null || /etc/init.d/pigeonbox enable
+	if ! /etc/init.d/pigeonbox restart; then
+		pb_rc=1
+		logger -t pigeonbox -p daemon.err "postinst: pigeonbox restart 失败(配置损坏/端口占用/依赖异常?)——服务未运行。诊断: logread -e pigeonbox;补救: /etc/init.d/pigeonbox restart"
+		echo "pigeonbox: restart 失败,服务未运行。诊断: logread -e pigeonbox;补救: /etc/init.d/pigeonbox restart" >&2
+	fi
+fi
 
 # 重载 rpcd 使新增的 LuCI ACL(/usr/share/rpcd/acl.d)生效
-# (会话会失效,用户重登 LuCI 后菜单可见)
+# (会话会失效,用户重登 LuCI 后菜单可见)。放在 restart 判定之后但**不因
+# restart 失败跳过**:ACL 生效与服务启动是两件事,失败时也要尽量装完可用。
 [ -x /etc/init.d/rpcd ] && /etc/init.d/rpcd restart 2>/dev/null
-exit 0
+exit "$pb_rc"
