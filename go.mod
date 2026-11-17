@@ -8,7 +8,7 @@ require (
 	github.com/cloudwego/hertz v0.10.6
 	github.com/glebarez/go-sqlite v1.23.0
 	github.com/oekit/core v0.15.4
-	github.com/pigeonbox/core v0.45.0
+	github.com/pigeonbox/core v0.46.0
 	github.com/stretchr/testify v1.12.1
 	go.uber.org/zap v1.28.0
 	golang.org/x/crypto v0.58.0
@@ -66,7 +66,7 @@ require (
 	github.com/pandatix/go-abnf v0.5.5 // indirect
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 	github.com/philhofer/fwd v1.2.1 // indirect
-	github.com/pigeonbox/contracts v0.25.0 // indirect
+	github.com/pigeonbox/contracts v0.26.0 // indirect
 	github.com/pkg/sftp v1.13.12 // indirect
 	github.com/prometheus/client_golang v1.25.0 // indirect
 	github.com/prometheus/client_model v0.6.3 // indirect
