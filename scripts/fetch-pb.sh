@@ -29,16 +29,24 @@
 # (与 p2pc「dist/p2pc 存在才装」的优雅降级规则同款纪律。)
 set -uo pipefail
 
+# ── shellkit（编译侧统一管道；**设备侧脚本一律不引**，见 C1） ───────────────
+# vendor/shellkit 是上游镜像（`shellkit vendor .` 的产物）⇒ **勿手改**。
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$REPO_ROOT/vendor/shellkit/lib/bootstrap.sh"
+export SHELLKIT_LANG="${SHELLKIT_LANG:-zh_CN}"
+
 TRIPLE="${1:?用法: fetch-pb.sh <triple> [输出目录]}"
 OUTDIR="${2:-dist}"
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$ROOT" || exit 1
+cd "$REPO_ROOT" || exit 1
 
 case "$TRIPLE" in
   x86_64-unknown-linux-gnu) GOARCH=amd64 ;;
   aarch64-unknown-linux-gnu) GOARCH=arm64 ;;
-  *) echo "不支持的 triple: $TRIPLE" >&2; exit 1 ;;
+  *)
+    log_error "不支持的 triple: ${TRIPLE}"
+    exit 1
+    ;;
 esac
 
 # server 的同号 tag：取自**仓内 VERSION 文件**（列车写的真相源）。
@@ -49,19 +57,23 @@ esac
 #   而本地产物构建不注入 ⇒ 两处行为不一致。
 VER="$(cat VERSION 2>/dev/null | tr -d ' \r\n')"
 if [ -z "$VER" ]; then
-  echo "(无 VERSION 文件 —— 跳过随包 pb)"
-  OK=1
+  log_info "(无 VERSION 文件 —— 跳过随包 pb)"
   exit 0
 fi
 REF="${PB_SERVER_REF:-v${VER}}"
 
 mkdir -p "$OUTDIR"
 TMP="$(mktemp -d)"
-OK=0
-# shellcheck disable=SC2154  # rc 在 trap 体内赋值，shellcheck 看不见
-trap 'rc=$?; rm -rf "$TMP"; if [ "$rc" -ne 0 ]; then exit $rc; fi; if [ "${OK:-0}" != 1 ]; then exit 1; fi; exit 0' EXIT
+# 清理栈 + trap 安装（shellkit 接管 EXIT/INT/TERM/HUP）。
+# ⚠️ 原来的手写 trap（`trap 'rc=$?; rm -rf …; …OK 哨兵…' EXIT`）由
+#    `trap_install` 取代：它的处理器取 $? 后原样 `exit "$__st"`
+#    ⇒ **退出码照旧透传**（C3），且顺带覆盖 INT/TERM/HUP（原来不清理）。
+#    本脚本所有「exit 0」出口都显式退出 ⇒ 与原「OK 哨兵」等价。
+# shellcheck disable=SC2016  # 单引号是**故意的**：清理命令要在 trap 触发时再求值
+trap_push 'rm -rf "$TMP"'
+trap_install
 
-echo "==> 构建 pb CLI（server ${REF} 源码, GOARCH=${GOARCH}）"
+log_info "构建 pb CLI（server ${REF} 源码, GOARCH=${GOARCH}）"
 
 # 检出 server 同号 tag 的源码；失败则**退避重试**——
 # server 的 tag 可能比本仓的 tag 晚几秒可见（两仓 tag 由列车分批推送：
@@ -69,28 +81,33 @@ echo "==> 构建 pb CLI（server ${REF} 源码, GOARCH=${GOARCH}）"
 #
 # 失败模式是**静默降级**（检出失败 ⇒ 不带 pb ⇒ 应用照常可用 ⇒ 只有门禁会发现）
 # ⇒ 没有重试就意味着「这一趟车的包没有 pb」。
-_pb_try=0
-while [ "$_pb_try" -lt 10 ]; do
-  _pb_try=$((_pb_try + 1))
-  if git clone -q --depth 1 --branch "$REF" https://github.com/pigeonbox/server.git "$TMP/server" 2>/dev/null; then
-    break
-  fi
-  echo "    … server ${REF} 源码尚未可见（第 ${_pb_try} 次），3s 后重试"
-  sleep 3
-done
+#
+# ⚠️ 重试口径（2026-11-18 shellkit 改造）：原来是手写 `while` 循环 + `sleep 3`，
+#    现在交给 shellkit 的 `retry`；退避参数**钉死成恒定 3s**
+#    （DELAY=3 / BACKOFF=1 / MAX_DELAY=3）⇒ 与原来「最多 10 次、每次间隔 3s」对齐。
+# ⚠️ `retry` 放弃时会在 stderr 打一行 [ERROR]（重试次数用尽）——本脚本对
+#    「检出失败」是**优雅降级**（包内无 pb，应用照常可用）⇒ 该行属预期内。
+export SHELLKIT_RETRY_DELAY=3
+export SHELLKIT_RETRY_BACKOFF=1
+export SHELLKIT_RETRY_MAX_DELAY=3
+
+# clone 的 stderr 单独吞掉（原来就是 `2>/dev/null`）⇒ 放进函数里做，
+# 否则重定向会把 shellkit 自己的重试日志一起吞掉。
+_pb_clone() {
+  git clone -q --depth 1 --branch "$REF" https://github.com/pigeonbox/server.git "$TMP/server" 2>/dev/null
+}
+retry 10 _pb_clone
+
 if [ ! -d "$TMP/server/.git" ]; then
-  echo "    ✗ server ${REF} 源码检出失败 —— pb 优雅降级（包内无 pb）"
-  OK=1
+  log_warn "server ${REF} 源码检出失败 —— pb 优雅降级（包内无 pb）"
   exit 0
 fi
 
 if ! (cd "$TMP/server" && CGO_ENABLED=0 GOWORK=off GOOS=linux GOARCH="$GOARCH" \
-      go build -trimpath -ldflags="-w -s" -o "$ROOT/$OUTDIR/pb" ./cmd/pb) 2>/dev/null; then
-  echo "    ✗ pb 编译失败 —— pb 优雅降级（包内无 pb）"
-  rm -f "$ROOT/$OUTDIR/pb"
-  OK=1
+  go build -trimpath -ldflags="-w -s" -o "$REPO_ROOT/$OUTDIR/pb" ./cmd/pb) 2>/dev/null; then
+  log_error "pb 编译失败 —— pb 优雅降级（包内无 pb）"
+  rm -f "$REPO_ROOT/$OUTDIR/pb"
   exit 0
 fi
 
-echo "    ✓ dist/pb（$(du -h "$ROOT/$OUTDIR/pb" | cut -f1)）"
-OK=1
+log_ok "dist/pb（$(du -h "$REPO_ROOT/$OUTDIR/pb" | cut -f1)）"

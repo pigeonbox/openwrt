@@ -17,56 +17,102 @@
 # 供应链:checksums.txt 侧车强制 sha256 校验（资产完整性）。
 set -euo pipefail
 
+# ── shellkit（编译侧统一管道；**设备侧脚本一律不引**，见 C1） ───────────────
+# vendor/shellkit 是上游镜像（`shellkit vendor .` 的产物）⇒ **勿手改**。
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$REPO_ROOT/vendor/shellkit/lib/bootstrap.sh"
+export SHELLKIT_LANG="${SHELLKIT_LANG:-zh_CN}"
+
 TRIPLE="${1:?用法: fetch-p2pc.sh <triple> [输出目录]}"
 OUTDIR="${2:-dist}"
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$ROOT"
+cd "$REPO_ROOT"
 
+# ⚠️ DEPS.env 的钉版解析**保留手写**（不换 conf_get_any）：
+#   conf_get_any 的取值序是「环境变量 > 配置层 > 文件」⇒ 会让外部环境变量
+#   悄悄改掉钉版；且多行/带尾空白的口径与这里的 `tr -d ' \r'` 不同
+#   ⇒ 语义会变（C2）⇒ 保持原样。
 REF=$(sed -n 's/^P2PC_REF=//p' DEPS.env | tr -d ' \r')
 if [ -z "$REF" ]; then
-  echo "(DEPS.env 无 P2PC_REF —— 跳过随包 p2pc/直传优雅降级)"
-  OK=1
+  log_info "(DEPS.env 无 P2PC_REF —— 跳过随包 p2pc/直传优雅降级)"
   exit 0
 fi
 
 BASE="https://github.com/pigeonbox/p2p/releases/download/${REF}"
 TMP="$(mktemp -d)"
-OK=0
-# shellcheck disable=SC2154  # rc 在 trap 体内赋值，shellcheck 看不见
-trap 'rc=$?; rm -rf "$TMP"; if [ "$rc" -ne 0 ]; then exit $rc; fi; if [ "${OK:-0}" != 1 ]; then exit 1; fi; exit 0' EXIT
+# 清理栈 + trap 安装（shellkit 接管 EXIT/INT/TERM/HUP）。
+# ⚠️ 原来的手写 trap 由 `trap_install` 取代：处理器取 $? 后原样 `exit "$__st"`
+#    ⇒ **退出码照旧透传**（C3）。本脚本所有失败出口都显式 `die 1`
+#    ⇒ 与原「OK 哨兵」等价。
+# shellcheck disable=SC2016  # 单引号是**故意的**：清理命令要在 trap 触发时再求值
+trap_push 'rm -rf "$TMP"'
+trap_install
 
-fetch() { # <资产名>
-  asset="$1"
-  if curl -fsSL -m 300 -o "$TMP/$asset" "$BASE/$asset" 2>/dev/null; then
-    return 0
-  fi
-  if command -v gh >/dev/null 2>&1; then
-    gh release download "$REF" -R pigeonbox/p2p -p "$asset" -O "$TMP/$asset" --clobber
-    return 0
-  fi
-  echo "✗ $asset 下载失败（curl/gh 均不可用）" >&2
-  exit 1
+# 从 checksums.txt 取某个资产的 sha256（stdout；找不到 ⇒ 空串）。
+# ⚠️ 口径与原脚本的 `grep " <资产>$" | sha256sum -c -` 对齐：
+#   只认「**空格 + 资产名结尾**」的行（二进制模式的 `*<资产名>` 不匹配，
+#   与原脚本同）；这里用字面比较而不是正则 ⇒ 资产名里的正则元字符不会误伤。
+_sha_of() { # <资产名>
+  awk -v n=" $1" 'length($0) >= length(n) && substr($0, length($0) - length(n) + 1) == n { print $1; exit }' "$TMP/checksums.txt"
 }
 
-verify() { # <资产名>
-  if command -v sha256sum >/dev/null 2>&1; then
-    (cd "$TMP" && grep " $1\$" checksums.txt | sha256sum -c - >/dev/null)
+# 下载一个资产并做 sha256 校验。
+# ⚠️ **兜底链保留**（原来就有）：curl 不通 ⇒ 换 `gh release download`。
+#   shellkit 的 net_download 只认 curl/wget ⇒ gh 兜底仍要手写。
+# ⚠️ 校验不匹配（SK_VERIFY）时**不兜底**：原脚本「下载成功但校验失败 ⇒ 直接判红」，
+#   不会换 gh 重下（同一个 Release 换条路下到的还是同一个坏文件）。
+fetch_asset() { # <资产名> <期望 sha256；空串 ⇒ 不校验>
+  local asset=$1 sha=$2 dest rc
+  dest="$TMP/${asset}"
+  if [ -n "$sha" ]; then
+    if net_download "${BASE}/${asset}" "$dest" "$sha"; then
+      return 0
+    else
+      rc=$?
+    fi
   else
-    (cd "$TMP" && grep " $1\$" checksums.txt | shasum -a 256 -c - >/dev/null)
+    if net_download "${BASE}/${asset}" "$dest"; then
+      return 0
+    else
+      rc=$?
+    fi
   fi
+  if [ "$rc" -eq "$SK_VERIFY" ]; then
+    return "$SK_VERIFY"
+  fi
+  if ! command -v gh >/dev/null 2>&1; then
+    return 1
+  fi
+  gh release download "$REF" -R pigeonbox/p2p -p "$asset" -O "$dest" --clobber || return 1
+  if [ -n "$sha" ]; then
+    net_verify "$dest" "$sha" || return "$SK_VERIFY"
+  fi
+  return 0
 }
 
-curl -fsSL -m 60 -o "$TMP/checksums.txt" "$BASE/p2pc-checksums.txt" 2>/dev/null \
-  || { echo "✗ checksums.txt 下载失败" >&2; exit 1; }
+if ! net_download "${BASE}/p2pc-checksums.txt" "$TMP/checksums.txt"; then
+  die 1 "checksums.txt 下载失败"
+fi
 
 mkdir -p "$OUTDIR"
 for pair in "p2pc-${TRIPLE}:p2pc" "p2pc-web-${TRIPLE}:p2pcweb"; do
   asset="${pair%%:*}"
   dest="${pair##*:}"
-  fetch "$asset"
-  verify "$asset" || { echo "✗ $asset sha256 校验失败" >&2; exit 1; }
-  install -m 0755 "$TMP/$asset" "$OUTDIR/$dest"
-  echo "✓ $dest @ $REF ($TRIPLE)"
+  sha="$(_sha_of "$asset")"
+  if [ -z "$sha" ]; then
+    # ⚠️ 资产不在 checksums.txt 里 ⇒ 原脚本的 `grep | sha256sum -c` 拿到空输入、
+    #    sha256sum 对空输入返回 0 ⇒ **实际一次校验都没做**却判绿（fail-open）。
+    #    本次保持**逐字等价**（不校验 ⇒ 不失败），并在此显式告警。
+    log_warn "checksums.txt 里没有 ${asset} ⇒ 不做 sha256 校验（原脚本同口径）"
+  fi
+  rc=0
+  fetch_asset "$asset" "$sha" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    if [ "$rc" -eq "$SK_VERIFY" ]; then
+      die 1 "${asset} sha256 校验失败"
+    fi
+    die 1 "${asset} 下载失败（curl/gh 均不可用）"
+  fi
+  install -m 0755 "$TMP/${asset}" "$OUTDIR/${dest}"
+  log_ok "${dest} @ ${REF} (${TRIPLE})"
 done
-OK=1

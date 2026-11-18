@@ -15,30 +15,37 @@
 # 产物: output_dir/pigeonbox_<version>-1_<arch>.ipk
 set -euo pipefail
 
+# ── shellkit（编译侧统一管道；**设备侧脚本一律不引**，见 C1） ───────────────
+# vendor/shellkit 是上游镜像（`shellkit vendor .` 的产物）⇒ **勿手改**。
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$REPO_ROOT/vendor/shellkit/lib/bootstrap.sh"
+export SHELLKIT_LANG="${SHELLKIT_LANG:-zh_CN}"
+
 ARCH=${1:?用法: build-ipk.sh <arch> <version> [output_dir]}
 VERSION=${2:?缺少版本号}
 OUTDIR=${3:-dist}
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STAGING="$(mktemp -d)"
-OK=0
-# shellcheck disable=SC2154  # rc 在 trap 体内赋值，shellcheck 看不见
-trap 'rc=$?; rm -rf "$STAGING"; if [ "$rc" -ne 0 ]; then exit $rc; fi; if [ "${OK:-0}" != 1 ]; then exit 1; fi; exit 0' EXIT
+# 清理栈 + trap 安装（shellkit 接管 EXIT/INT/TERM/HUP）：处理器取 $? 后原样
+# `exit "$__st"` ⇒ **退出码照旧透传**（C3）⇒ 与原手写 trap 等价。
+# shellcheck disable=SC2016  # 单引号是**故意的**：清理命令要在 trap 触发时再求值
+trap_push 'rm -rf "$STAGING"'
+trap_install
 
-[ -f "$ROOT/dist/pigeonbox" ] || { echo "缺 dist/pigeonbox(先 go build)"; exit 1; }
-[ -f "$ROOT/dist/www/index.html" ] || { echo "缺 dist/www/index.html(先 build-frontend.sh)"; exit 1; }
+[ -f "$REPO_ROOT/dist/pigeonbox" ] || die 1 "缺 dist/pigeonbox(先 go build)"
+[ -f "$REPO_ROOT/dist/www/index.html" ] || die 1 "缺 dist/www/index.html(先 build-frontend.sh)"
 
 # ---- 数据树 ----
 DATA="$STAGING/data"
 install -d "$DATA/usr/bin" \
-	"$DATA/usr/share/pigeonbox/www" \
-	"$DATA/etc/config" \
-	"$DATA/etc/init.d" \
-	"$DATA/usr/lib/pigeonbox" \
-	"$DATA/usr/share/luci/menu.d" \
-	"$DATA/usr/share/rpcd/acl.d" \
-	"$DATA/www/luci-static/resources/view/pigeonbox"
-install -m 0755 "$ROOT/dist/pigeonbox" "$DATA/usr/bin/pigeonbox"
+  "$DATA/usr/share/pigeonbox/www" \
+  "$DATA/etc/config" \
+  "$DATA/etc/init.d" \
+  "$DATA/usr/lib/pigeonbox" \
+  "$DATA/usr/share/luci/menu.d" \
+  "$DATA/usr/share/rpcd/acl.d" \
+  "$DATA/www/luci-static/resources/view/pigeonbox"
+install -m 0755 "$REPO_ROOT/dist/pigeonbox" "$DATA/usr/bin/pigeonbox"
 # p2pc 设备直传随包(2026-10-14 P2b):dist/p2pc 存在才装,缺失优雅降级;
 # supervisor 候选查找序含 /usr/bin/p2pc,init 脚本零改动。
 # ⚠️ 2026-10-26 审计 P1:**本块曾被删掉**(只剩 p2pcweb)⇒ 装出来的 ipk 没有
@@ -47,38 +54,38 @@ install -m 0755 "$ROOT/dist/pigeonbox" "$DATA/usr/bin/pigeonbox"
 # ⇒ 恢复安装，并用 scripts/assert-pkg-contents.sh 断言**包内文件清单**含
 #   usr/bin/p2pc（不只看运行时存在性：打包脚本漏装时发布物同样漏装）。
 # p2pcweb(A2 内嵌)同规则:make p2pc 同批抓取,init beam 段按存在性启动。
-if [ -f "$ROOT/dist/p2pc" ]; then
-	install -m 0755 "$ROOT/dist/p2pc" "$DATA/usr/bin/p2pc"
+if [ -f "$REPO_ROOT/dist/p2pc" ]; then
+  install -m 0755 "$REPO_ROOT/dist/p2pc" "$DATA/usr/bin/p2pc"
 fi
 # pb CLI 随包(官方命令行客户端:doctor 部署自检等):
 # dist/pb 存在才装,缺失优雅降级(同 p2pc 规则)⇒ 包内无 pb 时应用照常可用。
 # ⚠️ 装到 /usr/bin/pb ⇒ **在 PATH 里** ⇒ 用户直接敲 `pb doctor` 即可,
 #   不必记 /usr/bin/pb 的完整路径。
-if [ -f "$ROOT/dist/pb" ]; then
-	install -m 0755 "$ROOT/dist/pb" "$DATA/usr/bin/pb"
+if [ -f "$REPO_ROOT/dist/pb" ]; then
+  install -m 0755 "$REPO_ROOT/dist/pb" "$DATA/usr/bin/pb"
 fi
-if [ -f "$ROOT/dist/p2pcweb" ]; then
-	install -m 0755 "$ROOT/dist/p2pcweb" "$DATA/usr/bin/p2pcweb"
-# 出厂预接线脚本(Beam↔Box 地址与专用 API Key 预置)⇒ 与 p2pcweb 同在 /usr/bin
-	install -m 0755 "$ROOT/openwrt/prewire_beam_box" "$DATA/usr/bin/prewire_beam_box"
+if [ -f "$REPO_ROOT/dist/p2pcweb" ]; then
+  install -m 0755 "$REPO_ROOT/dist/p2pcweb" "$DATA/usr/bin/p2pcweb"
+  # 出厂预接线脚本(Beam↔Box 地址与专用 API Key 预置)⇒ 与 p2pcweb 同在 /usr/bin
+  install -m 0755 "$REPO_ROOT/openwrt/prewire_beam_box" "$DATA/usr/bin/prewire_beam_box"
 fi
-cp -R "$ROOT/dist/www/." "$DATA/usr/share/pigeonbox/www/"
-install -m 0644 "$ROOT/openwrt/pigeonbox.config" "$DATA/etc/config/pigeonbox"
-install -m 0755 "$ROOT/openwrt/pigeonbox.init" "$DATA/etc/init.d/pigeonbox"
+cp -R "$REPO_ROOT/dist/www/." "$DATA/usr/share/pigeonbox/www/"
+install -m 0644 "$REPO_ROOT/openwrt/pigeonbox.config" "$DATA/etc/config/pigeonbox"
+install -m 0755 "$REPO_ROOT/openwrt/pigeonbox.init" "$DATA/etc/init.d/pigeonbox"
 # 升级前业务库快照(5.4.1):postinst 在 restart 之前调用它。
 # ⚠️ 与 p2pc 那次 P1 同源教训——**钩子依赖的文件必须显式装进包内并要求断言**:
 #   只写 postinst 而不装文件 ⇒ 钩子静默跳过([ -x ] 不成立),「升级前自动备份」
 #   就成了文档里的空头承诺,而真机升级/CI 都照样绿。
-install -m 0755 "$ROOT/openwrt/preupgrade_backup" "$DATA/usr/lib/pigeonbox/preupgrade_backup"
+install -m 0755 "$REPO_ROOT/openwrt/preupgrade_backup" "$DATA/usr/lib/pigeonbox/preupgrade_backup"
 # LuCI 入口页(服务→PigeonBox:状态+新窗口打开 UI)
-install -m 0644 "$ROOT/luci/menu.d/luci-app-pigeonbox.json" "$DATA/usr/share/luci/menu.d/"
-install -m 0644 "$ROOT/luci/acl.d/luci-app-pigeonbox.json" "$DATA/usr/share/rpcd/acl.d/"
-install -m 0644 "$ROOT/luci/view/pigeonbox/page.js" "$DATA/www/luci-static/resources/view/pigeonbox/page.js"
+install -m 0644 "$REPO_ROOT/luci/menu.d/luci-app-pigeonbox.json" "$DATA/usr/share/luci/menu.d/"
+install -m 0644 "$REPO_ROOT/luci/acl.d/luci-app-pigeonbox.json" "$DATA/usr/share/rpcd/acl.d/"
+install -m 0644 "$REPO_ROOT/luci/view/pigeonbox/page.js" "$DATA/www/luci-static/resources/view/pigeonbox/page.js"
 
 # ---- 控制区 ----
 CONTROL="$STAGING/CONTROL"
 install -d "$CONTROL"
-cat > "$CONTROL/control" <<EOF
+cat >"$CONTROL/control" <<EOF
 Package: pigeonbox
 Version: ${VERSION}-1
 Depends: libc, redis-server
@@ -88,23 +95,23 @@ Section: net
 Source: https://github.com/pigeonbox/openwrt
 Description: PigeonBox - anonymous file and text sharing server (OpenWrt/iStoreOS native package)
 EOF
-echo "/etc/config/pigeonbox" > "$CONTROL/conffiles"
-install -m 0755 "$ROOT/openwrt/pigeonbox.postinst" "$CONTROL/postinst"
-install -m 0755 "$ROOT/openwrt/pigeonbox.prerm" "$CONTROL/prerm"
+echo "/etc/config/pigeonbox" >"$CONTROL/conffiles"
+install -m 0755 "$REPO_ROOT/openwrt/pigeonbox.postinst" "$CONTROL/postinst"
+install -m 0755 "$REPO_ROOT/openwrt/pigeonbox.prerm" "$CONTROL/prerm"
 
 # ---- tar 属主统一 root:root(GNU/BSD tar 旗标不同;mac 须关 AppleDouble) ----
 # 格式强制 ustar/gnu:macOS bsdtar 默认 pax-restricted,文件带扩展属性时写入
 # 'x' 类型扩展头,opkg 的 tar 读取器不识别会整条跳过(实测踩坑)。
 if tar --version 2>/dev/null | grep -q GNU; then
-	TAROWN=(--owner=0 --group=0 --numeric-owner --format=gnu)
+  TAROWN=(--owner=0 --group=0 --numeric-owner --format=gnu)
 else
-	TAROWN=(--uid 0 --gid 0 --uname root --gname root --format ustar)
+  TAROWN=(--uid 0 --gid 0 --uname root --gname root --format ustar)
 fi
 export COPYFILE_DISABLE=1
 
-mkdir -p "$ROOT/$OUTDIR"
-IPK="$ROOT/$OUTDIR/pigeonbox_${VERSION}-1_${ARCH}.ipk"
-: > "$STAGING/debian-binary"
+mkdir -p "$REPO_ROOT/$OUTDIR"
+IPK="$REPO_ROOT/$OUTDIR/pigeonbox_${VERSION}-1_${ARCH}.ipk"
+: >"$STAGING/debian-binary"
 tar -czf "$STAGING/control.tar.gz" "${TAROWN[@]}" -C "$CONTROL" .
 tar -czf "$STAGING/data.tar.gz" "${TAROWN[@]}" -C "$DATA" .
 
@@ -115,5 +122,4 @@ mkdir -p "$IPKROOT"
 cp "$STAGING/debian-binary" "$STAGING/control.tar.gz" "$STAGING/data.tar.gz" "$IPKROOT/"
 tar -czf "$IPK" "${TAROWN[@]}" -C "$IPKROOT" .
 
-echo "✓ $IPK ($(du -h "$IPK" | cut -f1))"
-OK=1
+log_ok "$IPK ($(du -h "$IPK" | cut -f1))"
