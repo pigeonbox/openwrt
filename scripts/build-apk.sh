@@ -16,12 +16,14 @@
 set -euo pipefail
 
 # ── shellkit（编译侧统一管道；**设备侧脚本一律不引**，见 C1） ───────────────
-# vendor/shellkit 是上游镜像（`shellkit vendor .` 的产物）⇒ **勿手改**。
+# third_party/shellkit 是上游镜像（由 hub 侧 scripts/vendor-shellkit.sh 物化）⇒ **勿手改**。
+# ⚠️ 落点是 third_party/ 而不是 vendor/：Go ≥1.14 见到**模块根**下有 vendor/ 就默认切
+#    vendor 模式 ⇒ 缺 vendor/modules.txt ⇒ go build 报 "inconsistent vendoring"（实测现红）。
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-. "$REPO_ROOT/vendor/shellkit/lib/bootstrap.sh"
+. "$REPO_ROOT/third_party/shellkit/lib/bootstrap.sh"
 export SHELLKIT_LANG="${SHELLKIT_LANG:-zh_CN}"
 
-ARCH=${1:?用法: build-apk.sh <arch> <version> [output_dir]}
+ARCH=${1:?用法: build-apk.sh [arch] [version] [output_dir]}
 VERSION=${2:?缺少版本号}
 OUTDIR=${3:-dist}
 
