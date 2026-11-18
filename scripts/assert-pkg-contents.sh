@@ -15,22 +15,32 @@
 # （见 .github/workflows/ci.yml 的 smoke-openwrt-apk）。
 set -euo pipefail
 
-IPK="${1:?用法: assert-pkg-contents.sh <ipk> <相对路径> [...]}"
+# ── shellkit（编译侧统一管道；**设备侧脚本一律不引**，见 C1） ───────────────
+# third_party/shellkit 是上游镜像（由 hub 侧 scripts/vendor-shellkit.sh 物化）⇒ **勿手改**。
+# ⚠️ 落点是 third_party/ 而不是 vendor/：Go ≥1.14 见到**模块根**下有 vendor/ 就默认切
+#    vendor 模式 ⇒ 缺 vendor/modules.txt ⇒ go build 报 "inconsistent vendoring"（实测现红）。
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$REPO_ROOT/third_party/shellkit/lib/bootstrap.sh"
+export SHELLKIT_LANG="${SHELLKIT_LANG:-zh_CN}"
+
+IPK="${1:?用法: assert-pkg-contents.sh [ipk] [相对路径] [...]}"
 shift
-[ $# -ge 1 ] || { echo "至少要给一个期望路径" >&2; exit 1; }
-[ -f "$IPK" ] || { echo "找不到包: $IPK" >&2; exit 1; }
+[ $# -ge 1 ] || die 1 "至少要给一个期望路径"
+[ -f "$IPK" ] || die 1 "找不到包: ${IPK}"
 
 TMP="$(mktemp -d)"
-OK=0
-# shellcheck disable=SC2154  # rc 在 trap 体内赋值，shellcheck 看不见
-trap 'rc=$?; rm -rf "$TMP"; if [ "$rc" -ne 0 ]; then exit $rc; fi; if [ "${OK:-0}" != 1 ]; then exit 1; fi; exit 0' EXIT
+# 清理栈 + trap 安装（shellkit 接管 EXIT/INT/TERM/HUP）：处理器取 $? 后原样
+# `exit "$__st"` ⇒ **退出码照旧透传**（C3）⇒ 与原手写 trap 等价。
+# shellcheck disable=SC2016  # 单引号是**故意的**：清理命令要在 trap 触发时再求值
+trap_push 'rm -rf "$TMP"'
+trap_install
 
-tar -xzf "$IPK" -C "$TMP" 2>/dev/null \
-  || { echo "✗ $IPK 不是合法的 ipk（外层 tar.gz 解不开）" >&2; exit 1; }
-[ -f "$TMP/data.tar.gz" ] || { echo "✗ $IPK 内无 data.tar.gz" >&2; exit 1; }
+tar -xzf "$IPK" -C "$TMP" 2>/dev/null ||
+  die 1 "${IPK} 不是合法的 ipk（外层 tar.gz 解不开）"
+[ -f "$TMP/data.tar.gz" ] || die 1 "${IPK} 内无 data.tar.gz"
 
 LIST="$TMP/files.txt"
-tar -tzf "$TMP/data.tar.gz" | sed 's#^\./##' | sort > "$LIST"
+tar -tzf "$TMP/data.tar.gz" | sed 's#^\./##' | sort >"$LIST"
 
 MISSING=""
 for p in "$@"; do
@@ -39,11 +49,9 @@ for p in "$@"; do
 done
 
 if [ -n "$MISSING" ]; then
-  echo "✗ $(basename "$IPK") 包内缺文件：$MISSING" >&2
-  echo "  实际清单（前 40 行）:" >&2
+  log_info "实际清单（前 40 行）:"
   head -40 "$LIST" | sed 's/^/    /' >&2
-  exit 1
+  die 1 "$(basename "$IPK") 包内缺文件：$MISSING"
 fi
 
-echo "✓ $(basename "$IPK") 包内含：$*"
-OK=1
+log_ok "$(basename "$IPK") 包内含：$*"

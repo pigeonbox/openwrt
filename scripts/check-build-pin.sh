@@ -16,42 +16,51 @@
 #
 # 用法: bash scripts/check-build-pin.sh
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$ROOT"
+
+# ── shellkit（编译侧统一管道；**设备侧脚本一律不引**，见 C1） ───────────────
+# third_party/shellkit 是上游镜像（由 hub 侧 scripts/vendor-shellkit.sh 物化）⇒ **勿手改**。
+# ⚠️ 落点是 third_party/ 而不是 vendor/：Go ≥1.14 见到**模块根**下有 vendor/ 就默认切
+#    vendor 模式 ⇒ 缺 vendor/modules.txt ⇒ go build 报 "inconsistent vendoring"（实测现红）。
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+. "$REPO_ROOT/third_party/shellkit/lib/bootstrap.sh"
+export SHELLKIT_LANG="${SHELLKIT_LANG:-zh_CN}"
+
+cd "$REPO_ROOT"
 
 TMP="$(mktemp -d)"
-OK=0
-# shellcheck disable=SC2154  # rc 在 trap 体内赋值，shellcheck 看不见
-trap 'rc=$?; rm -rf "$TMP"; if [ "$rc" -ne 0 ]; then exit $rc; fi; if [ "${OK:-0}" != 1 ]; then exit 1; fi; exit 0' EXIT
-
-fail() { echo "✗ $1" >&2; exit 1; }
+# 清理栈 + trap 安装（shellkit 接管 EXIT/INT/TERM/HUP）：处理器取 $? 后原样
+# `exit "$__st"` ⇒ **退出码照旧透传**（C3）⇒ 与原手写 trap 等价。
+# shellcheck disable=SC2016  # 单引号是**故意的**：清理命令要在 trap 触发时再求值
+trap_push 'rm -rf "$TMP"'
+trap_install
+# 失败出口统一走 shellkit 的 `die 1`（语义=一般失败，与原来的 `exit 1` 一致）。
 
 CORE_PIN="$(sed -n 's/^CORE_PIN=//p' DEPS.env | tr -d ' \r')"
-[ -n "$CORE_PIN" ] || fail "DEPS.env 无 CORE_PIN"
+[ -n "$CORE_PIN" ] || die 1 "DEPS.env 无 CORE_PIN"
 
 # ① Makefile 断言
 if ! grep -qE '^\s*GOWORK=off go build' Makefile; then
-  fail "Makefile 的 build 目标没有 GOWORK=off ⇒ 在 hub 工作区里会联编本地 core（版本幽灵）"
+  die 1 "Makefile 的 build 目标没有 GOWORK=off ⇒ 在 hub 工作区里会联编本地 core（版本幽灵）"
 fi
-echo "✓ Makefile build 目标带 GOWORK=off"
+log_ok "Makefile build 目标带 GOWORK=off"
 
 # go.mod 的钉版必须与 DEPS.env 一致（否则 CORE_PIN 本身就是错的）
 GOMOD_CORE="$(grep -oE 'github\.com/pigeonbox/core v[0-9][^ ]*' go.mod | head -1 | awk '{print $2}')"
-[ "$GOMOD_CORE" = "$CORE_PIN" ] || fail "go.mod 的 core 钉版(${GOMOD_CORE:-无}) ≠ DEPS.env CORE_PIN=${CORE_PIN}"
-echo "✓ go.mod core 钉版 == DEPS.env CORE_PIN = ${CORE_PIN}"
+[ "$GOMOD_CORE" = "$CORE_PIN" ] || die 1 "go.mod 的 core 钉版(${GOMOD_CORE:-无}) ≠ DEPS.env CORE_PIN=${CORE_PIN}"
+log_ok "go.mod core 钉版 == DEPS.env CORE_PIN = ${CORE_PIN}"
 
 core_version_of() { # <二进制>
   # go version -m 的行形如:  dep<TAB>github.com/pigeonbox/core<TAB>v0.32.15<TAB>h1:...
   # 工作区联编时该列为 (devel) ⇒ 取模块路径**后面**的那一列。
-  go version -m "$1" 2>/dev/null \
-    | awk '{for(i=1;i<=NF;i++) if ($i=="github.com/pigeonbox/core") {print $(i+1); exit}}'
+  go version -m "$1" 2>/dev/null |
+    awk '{for(i=1;i<=NF;i++) if ($i=="github.com/pigeonbox/core") {print $(i+1); exit}}'
 }
 
 # ② 钉版构建
 GOWORK=off go build -o "$TMP/pigeonbox" ./cmd/pigeonbox
 VER="$(core_version_of "$TMP/pigeonbox")"
-[ "$VER" = "$CORE_PIN" ] || fail "钉版构建的 core 版本 = ${VER:-无} ≠ CORE_PIN=${CORE_PIN}"
-echo "✓ 钉版构建产物 core 版本 = ${VER}"
+[ "$VER" = "$CORE_PIN" ] || die 1 "钉版构建的 core 版本 = ${VER:-无} ≠ CORE_PIN=${CORE_PIN}"
+log_ok "钉版构建产物 core 版本 = ${VER}"
 
 # ③ 负对照：工作区构建（不 GOWORK=off）必须联编本地 core
 WS="$(go env GOWORK 2>/dev/null || true)"
@@ -59,12 +68,11 @@ if [ -n "$WS" ]; then
   go build -o "$TMP/pigeonbox-ws" ./cmd/pigeonbox
   WVER="$(core_version_of "$TMP/pigeonbox-ws")"
   if [ "$WVER" = "$CORE_PIN" ]; then
-    fail "负对照失效：工作区构建的 core 版本也是 ${CORE_PIN} ⇒ 断言抓不到「联编本地 core」"
+    die 1 "负对照失效：工作区构建的 core 版本也是 ${CORE_PIN} ⇒ 断言抓不到「联编本地 core」"
   fi
-  echo "✓ 负对照：工作区构建的 core 版本 = ${WVER:-无}（≠ ${CORE_PIN}）⇒ GOWORK=off 是必需的"
+  log_ok "负对照：工作区构建的 core 版本 = ${WVER:-无}（≠ ${CORE_PIN}）⇒ GOWORK=off 是必需的"
 else
-  echo "! 跳过负对照：当前不在 go 工作区内（单仓 checkout）⇒ 无本地 core 可联编"
+  log_warn "跳过负对照：当前不在 go 工作区内（单仓 checkout）⇒ 无本地 core 可联编"
 fi
 
-echo "✓ openwrt 钉版构建守卫通过（core == ${CORE_PIN}）"
-OK=1
+log_ok "openwrt 钉版构建守卫通过（core == ${CORE_PIN}）"

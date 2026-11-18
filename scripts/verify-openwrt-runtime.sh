@@ -53,8 +53,14 @@ declare -a RESULTS=()
 
 record() {
   case "$1" in
-    ok)   PASS=$((PASS+1)); RESULTS+=("PASS | $2 | $3") ;;
-    no)   FAIL=$((FAIL+1)); RESULTS+=("FAIL | $2 | $3") ;;
+    ok)
+      PASS=$((PASS + 1))
+      RESULTS+=("PASS | $2 | $3")
+      ;;
+    no)
+      FAIL=$((FAIL + 1))
+      RESULTS+=("FAIL | $2 | $3")
+      ;;
     skip) RESULTS+=("SKIP | $2 | $3") ;;
   esac
   printf '  [%s] %s — %s\n' "$1" "$2" "$3"
@@ -93,7 +99,7 @@ if [ "${1:-}" = "--selfcheck" ]; then
   mkdir -p "$FAKE" "$INITD" "$LUCI/controller"
 
   # 假 procd 脚本：enabled/status 的成败由 PB_FAKE_* 决定
-  cat > "$INITD/pigeonbox" <<'PROCD_EOF'
+  cat >"$INITD/pigeonbox" <<'PROCD_EOF'
 #!/bin/sh
 case "$1" in
   enabled) [ "${PB_FAKE_ENABLED:-yes}" = "no" ] && exit 1; exit 0 ;;
@@ -102,7 +108,7 @@ esac
 exit 0
 PROCD_EOF
   # 假 curl：按 URL 返回状态码（模式由 PB_FAKE_CURL 决定）
-  cat > "$FAKE/curl" <<'CURL_EOF'
+  cat >"$FAKE/curl" <<'CURL_EOF'
 #!/bin/sh
 url=""
 for a in "$@"; do url="$a"; done
@@ -118,13 +124,13 @@ esac
 printf '%s' "$code"
 CURL_EOF
   # 假 pgrep：PB_FAKE_REDIS=no ⇒ redis 没起来
-  cat > "$FAKE/pgrep" <<'PGREP_EOF'
+  cat >"$FAKE/pgrep" <<'PGREP_EOF'
 #!/bin/sh
 [ "${PB_FAKE_REDIS:-yes}" = "no" ] && exit 1
 exit 0
 PGREP_EOF
   # 假 id：PB_FAKE_ID=1000 ⇒ 非 root
-  cat > "$FAKE/id" <<'ID_EOF'
+  cat >"$FAKE/id" <<'ID_EOF'
 #!/bin/sh
 [ "${1:-}" = "-u" ] && printf '%s\n' "${PB_FAKE_ID:-0}" && exit 0
 printf 'uid=%s\n' "${PB_FAKE_ID:-0}"
@@ -132,11 +138,11 @@ ID_EOF
   chmod +x "$FAKE"/* "$INITD/pigeonbox"
 
   # 假 LuCI controller：PB_FAKE_LUCI=none ⇒ 目录里没有 pigeonbox
-  : > "$LUCI/controller/pigeonbox.lua"
+  : >"$LUCI/controller/pigeonbox.lua"
 
   # 假 UCI 配置(openwrt#199):默认 600=正常态;异常态改 644 ⇒ 权限判据必须判红
   mkdir -p "$SELF_DIR/config"
-  : > "$SELF_DIR/config/pigeonbox"
+  : >"$SELF_DIR/config/pigeonbox"
   chmod 600 "$SELF_DIR/config/pigeonbox"
 
   run_case() { # run_case <额外 env 赋值...> ⇒ 打印退出码
@@ -153,9 +159,12 @@ ID_EOF
 
   fail=0
   # ① 一切正常 ⇒ 退出码 0
-  out=$(run_case PB_FAKE_LUCI=yes); rc=$?
+  out=$(run_case PB_FAKE_LUCI=yes)
+  rc=$?
   if [ "$rc" -ne 0 ]; then
-    echo "  ✗ 正常态应退出 0，实际 $rc" >&2; printf '%s\n' "$out" | sed 's/^/      /' >&2; fail=1
+    echo "  ✗ 正常态应退出 0，实际 $rc" >&2
+    printf '%s\n' "$out" | sed 's/^/      /' >&2
+    fail=1
   else
     echo "  ✓ 正常态 ⇒ 退出码 0（判据不会无脑报红）"
   fi
@@ -176,15 +185,18 @@ ID_EOF
     # ⑤ 的 LuCI 用「目录里删掉 controller 文件」来表达
     if [ "$key" = "PB_FAKE_LUCI" ]; then
       mv "$LUCI/controller/pigeonbox.lua" "$SELF_DIR/pigeonbox.lua.bak"
-      out=$(run_case PB_FAKE_LUCI=none); rc=$?
+      out=$(run_case PB_FAKE_LUCI=none)
+      rc=$?
       mv "$SELF_DIR/pigeonbox.lua.bak" "$LUCI/controller/pigeonbox.lua"
     elif [ "$key" = "PB_FAKE_CONFIG_MODE" ]; then
       # 权限判据:把假配置改成 644 ⇒ 必须判红,跑完恢复 600(正常态不受污染)
       chmod "$val" "$SELF_DIR/config/pigeonbox"
-      out=$(run_case); rc=$?
+      out=$(run_case)
+      rc=$?
       chmod 600 "$SELF_DIR/config/pigeonbox"
     else
-      out=$(run_case "$key=$val"); rc=$?
+      out=$(run_case "$key=$val")
+      rc=$?
     fi
     if [ "$rc" -ne 1 ]; then
       echo "  ✗ 「${label}」应判红（退出码 1），实际 $rc" >&2
@@ -196,9 +208,11 @@ ID_EOF
   done
 
   # ⑧ 非 root ⇒ 退出码 2（无法判定 ≠ 通过）
-  out=$(run_case PB_FAKE_ID=1000); rc=$?
+  out=$(run_case PB_FAKE_ID=1000)
+  rc=$?
   if [ "$rc" -ne 2 ]; then
-    echo "  ✗ 非 root 应退出 2（无法判定），实际 $rc" >&2; fail=1
+    echo "  ✗ 非 root 应退出 2（无法判定），实际 $rc" >&2
+    fail=1
   else
     echo "  ✓ 非 root ⇒ 退出码 2（无法判定 ≠ 通过）"
   fi
@@ -221,7 +235,7 @@ ID_EOF
     fi
   done
   sed 's/^[[:space:]]*chmod[[:space:]][[:space:]]*600[[:space:]].*//' \
-    "$SCRIPT_DIR/../openwrt/pigeonbox.postinst" > "$SELF_DIR/hook-mutated"
+    "$SCRIPT_DIR/../openwrt/pigeonbox.postinst" >"$SELF_DIR/hook-mutated"
   if hook_guard "$SELF_DIR/hook-mutated"; then
     echo "  ✗ 变异负对照:去掉 chmod 行后守卫仍绿(判据无牙齿)" >&2
     fail=1
@@ -234,7 +248,7 @@ ID_EOF
     exit 1
   fi
   echo "✓ 自证：正常态绿、每条异常态都红、非 root 报无法判定 ⇒ 判据有牙齿"
-  OK=1   # 跑到了结尾 ⇒ EXIT trap 允许以 0 退出（成功哨兵）
+  OK=1 # 跑到了结尾 ⇒ EXIT trap 允许以 0 退出（成功哨兵）
   exit 0
 fi
 
@@ -287,6 +301,9 @@ fi
 
 # LuCI 配置页可读可写
 if [ -d "${LUCI_DIR}" ]; then
+  # ⚠️ 判据逻辑**逐字保留**（本脚本是 openwrt#110 的关单证据）⇒ 不做 glob 改写，
+  #    只把 shellcheck 的 SC2010（ls | grep）按原样豁免。
+  # shellcheck disable=SC2010
   LUCI="$(ls "${LUCI_DIR}/controller/" 2>/dev/null | grep -i pigeonbox | head -1)"
   if [ -n "${LUCI}" ]; then
     record ok "LuCI 配置页" "controller/${LUCI}"
@@ -316,7 +333,7 @@ echo
 echo "── 要点 3：公开端点匿名可达 ──"
 if command -v "${CMD_CURL}" >/dev/null 2>&1; then
   CODE="$(${CMD_CURL} -s -o /dev/null -w '%{http_code}' --max-time 8 \
-          "${BASE}/api/v1/notifies/public" 2>/dev/null || echo 000)"
+    "${BASE}/api/v1/notifies/public" 2>/dev/null || echo 000)"
   if [ "${CODE}" = "200" ]; then
     record ok "公开端点" "匿名 200"
   else
@@ -333,7 +350,7 @@ if command -v "${CMD_CURL}" >/dev/null 2>&1; then
   # 4.0.4 起取件密码走 POST body / X-Share-Password 头，**不再收 ?password=**
   # ⇒ 用 query 传密码应被拒（400/401），用头传应被接受。
   BADCODE="$(${CMD_CURL} -s -o /dev/null -w '%{http_code}' --max-time 8 \
-             "${BASE}/api/v1/shares/000000/select?password=wrong" 2>/dev/null || echo 000)"
+    "${BASE}/api/v1/shares/000000/select?password=wrong" 2>/dev/null || echo 000)"
   if [ "${BADCODE}" != "200" ]; then
     record ok "取件密码不再收 query" "?password= 被拒（${BADCODE}）"
   else
