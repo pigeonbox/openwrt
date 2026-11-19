@@ -13,6 +13,10 @@
 #   ③ 负对照 A：把「缓存有效则复用」改坏 ⇒ 二次执行建了 2 把 ⇒ 判据 ② 必须红；
 #   ④ 负对照 B：把 scope 改窄 ⇒ 判据 ① 必须红；
 #   ⑤ 负对照 C：把「只发非空字段」改成发空 registry ⇒ 判据 ③ 必须红。
+#   ⑥ **用 POSIX shell 跑被测脚本**（`sh`,不是 `bash`）:被测脚本是**设备侧**脚本
+#      ⇒ 真机上跑的是 busybox ash ⇒ 用 bash 跑就验不出 ash 兼容性
+#      ⇒ openwrt#215 那类「bash shebang / bash 专有语法」缺陷会从这里溜过去
+#      ⇒ 必须 `sh` 跑,判据才对得上真机。
 #
 # 用法: bash scripts/prewire-beam-box-selftest.sh
 set -uo pipefail
@@ -32,6 +36,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #   ⇒ 8 条判据全灭、负对照的 sed 也读不到文件 ⇒ 「变异无效，判据无牙齿」。
 #   ⇒ 症状看着像「判据没牙齿」，实为**自测自身失效**（路径指错）。
 PREWIRE="$SCRIPT_DIR/../openwrt/prewire_beam_box"
+# POSIX 子集(设备侧形态)的绝对路径。
+# ⚠️ **必须显式指过去**:负对照会把被测脚本**复制到临时目录**再跑 ⇒ 脚本按
+#   「同目录」探测必然落空 ⇒ 缺库直接早退 ⇒ 负对照会误判成「变异无效」
+#   (判据失牙齿)。⇒ 用环境变量把库指到仓内那份,保证负对照真的跑到了被改的那段。
+PREWIRE_LIB="$SCRIPT_DIR/../openwrt/shellkit-posix.sh"
+[ -f "$PREWIRE_LIB" ] || die 1 "找不到 shellkit POSIX 子集: ${PREWIRE_LIB}"
 
 fails=0
 # 判据输出：shellkit 日志（stderr）；**判定逻辑一个字未改**。
@@ -177,7 +187,8 @@ run_prewire() { # <脚本路径> → 退出码
     PB_DATA_PATH="$DATA" \
     PB_ADMIN_PASSWORD=admin123 \
     PB_PREWIRE_WAIT_MAX="${PB_PREWIRE_WAIT_MAX:-30}" \
-    bash "$1" >/dev/null 2>&1
+    PB_SHELLKIT_POSIX="$PREWIRE_LIB" \
+    sh "$1" >/dev/null 2>&1
 }
 
 state_get() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$STATE" "$1" 2>/dev/null; }
@@ -318,7 +329,8 @@ log_info "── 判据 ⑥：登录 401 ⇒ 提示点名 .env 口令已过期"
 rm -f "$DATA/.beam_box_api_key"
 curl -s -m 5 -X POST "http://127.0.0.1:${BOX_PORT}/__invalidate" >/dev/null 2>&1
 OUT6="$(PB_SERVER_PORT="$BOX_PORT" PB_P2PCWEB_PORT="$BEAM_PORT" PB_DATA_PATH="$DATA" \
-  PB_ADMIN_PASSWORD=wrong-pass PB_PREWIRE_WAIT_MAX=10 bash "$PREWIRE" 2>&1)"
+  PB_ADMIN_PASSWORD=wrong-pass PB_PREWIRE_WAIT_MAX=10 PB_SHELLKIT_POSIX="$PREWIRE_LIB" \
+  sh "$PREWIRE" 2>&1)"
 if printf '%s' "$OUT6" | grep -q '口令已过期'; then
   note_ok "登录失败提示点名「.env 口令已过期」"
 else
@@ -332,7 +344,8 @@ sed 's|⇒ .env 口令已过期（PB_ADMIN_PASSWORD 与库中口令不符）||' 
 rm -f "$DATA/.beam_box_api_key"
 curl -s -m 5 -X POST "http://127.0.0.1:${BOX_PORT}/__invalidate" >/dev/null 2>&1
 OUTD="$(PB_SERVER_PORT="$BOX_PORT" PB_P2PCWEB_PORT="$BEAM_PORT" PB_DATA_PATH="$DATA" \
-  PB_ADMIN_PASSWORD=wrong-pass PB_PREWIRE_WAIT_MAX=10 bash "$BAD4" 2>&1)"
+  PB_ADMIN_PASSWORD=wrong-pass PB_PREWIRE_WAIT_MAX=10 PB_SHELLKIT_POSIX="$PREWIRE_LIB" \
+  sh "$BAD4" 2>&1)"
 if printf '%s' "$OUTD" | grep -q '口令已过期'; then
   note_fail "坏副本仍出现新文案 ⇒ 变异无效，判据 ⑥ 无牙齿"
 else

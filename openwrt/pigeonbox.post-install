@@ -4,6 +4,34 @@
 # /etc 下的改动(apk 改写 rc.d 符号链接之外的部分)天然受保护路径语义保护。
 # 本脚本同时挂 post-install 与 post-upgrade(build-apk.sh)⇒ 升级路径也走这里。
 
+# ── shellkit POSIX 子集（设备侧唯一可用的 shellkit 形态）──────────────────
+#   上游 shellkit 主库是 Bash 3.2+ 基线(数组/printf -v/local -n 等)在 busybox ash 上
+#   **根本解析不了**(不是运行报错,是脚本起不来)⇒ 设备侧只能用 POSIX 子集
+#   (lib/posix/shellkit-posix.sh,纯 POSIX sh 语法)。本仓副本随包装在
+#   /usr/lib/pigeonbox/shellkit-posix.sh(build-apk.sh 安装)。
+#
+#   探测序：① 环境变量 PB_SHELLKIT_POSIX ② 脚本同目录 ③ 同目录 lib/ ④ 包内落点。
+#   ⚠️ **缺失即退 5(fail-closed)**:装的是不完整的包 ⇒ 不许进入「启用+拉起」。
+#      apk 会把 post-install 非 0 标记成失败 ⇒ 现场看得见(与下面的启动判红同一口径)。
+#   ⚠️ 退 5 之前**不能**用 shellkit 的 die/fail —— 那两个函数就在缺掉的那个库里。
+_sk_dir="$(dirname "$0")"
+_sk_lib=""
+for _sk_c in \
+    "${PB_SHELLKIT_POSIX:-}" \
+    "${_sk_dir}/shellkit-posix.sh" \
+    "${_sk_dir}/lib/shellkit-posix.sh" \
+    "/usr/lib/pigeonbox/shellkit-posix.sh"
+do
+    if [ -n "$_sk_c" ] && [ -r "$_sk_c" ]; then _sk_lib="$_sk_c"; break; fi
+done
+if [ -z "$_sk_lib" ]; then
+    echo "缺 shellkit POSIX 子集（装的是不完整的包）" >&2
+    exit 5
+fi
+# 落点是运行时探测出来的 ⇒ shellcheck 追不动,显式声明不追
+# shellcheck source=/dev/null
+. "$_sk_lib"
+
 # 配置收紧(openwrt#199):/etc/config/pigeonbox 存明文管理员口令与 Redis 密码
 # (LuCI 表单保存即写进 UCI),打包是 0644 ⇒ 路由器上本地非特权进程可读。
 # ⇒ 装包即 chmod 600;conffile 升级后必须**重申**(apk 升级会用包内 0644 的
