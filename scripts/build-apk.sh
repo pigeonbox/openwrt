@@ -47,6 +47,12 @@ install -d "$DATA/usr/bin" \
   "$DATA/usr/share/luci/menu.d" \
   "$DATA/usr/share/rpcd/acl.d" \
   "$DATA/www/luci-static/resources/view/pigeonbox"
+# shellkit POSIX 子集(设备侧唯一可用的 shellkit 形态)随包安装到 /usr/lib/pigeonbox/。
+# ⚠️ 设备侧脚本(pigeonbox.init / postinst / post-install / prerm / preupgrade_backup)
+#    都在顶部装载它 ⇒ **缺它 = 装的是不完整的包** ⇒ init 侧 fail-closed 退 5,
+#    服务根本起不来(且 postinst 会把安装判红)。
+# ⇒ 与 2026-10-26 那次 p2pc P1 同源教训:钩子依赖的文件必须显式装进包内。
+install -m 0644 "$REPO_ROOT/openwrt/shellkit-posix.sh" "$DATA/usr/lib/pigeonbox/shellkit-posix.sh"
 install -m 0755 "$REPO_ROOT/dist/pigeonbox" "$DATA/usr/bin/pigeonbox"
 # p2pc + p2pcweb 随包(与 ipk 同布局)。
 # ⚠️ 2026-10-26 审计 P1:**apk 数据树此前连 p2pcweb 都没有** ⇒ apk3 装出来的

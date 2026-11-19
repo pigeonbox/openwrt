@@ -48,6 +48,39 @@ log() {
 	fi
 }
 
+# ── shellkit POSIX 子集（设备侧唯一可用的 shellkit 形态）──────────────────
+#   上游 shellkit 主库是 Bash 3.2+ 基线在 busybox ash 上**根本解析不了**
+#   ⇒ 设备侧只能用 POSIX 子集(lib/posix/shellkit-posix.sh,纯 POSIX sh 语法)。
+#   本仓副本随包装在 /usr/lib/pigeonbox/shellkit-posix.sh(build-ipk.sh 安装)
+#   ⇒ 本钩子与它同目录 ⇒ ② 号候选(同目录)直接命中。
+#
+#   探测序：① 环境变量 PB_SHELLKIT_POSIX ② 脚本同目录 ③ 同目录 lib/ ④ 包内落点。
+#   ⚠️ **本钩子刻意不 fail-closed(与 postinst/post-install 不同)**:本文件头写明
+#      「**退出码恒 0**」——钩子的失败语义是「响亮日志 + 绝不中止安装」
+#      (postinst 阶段 abort 只会把服务留在停机状态;flash 写满时 abort 是死结)
+#      ⇒ 缺库时退 5 会直接违反这条对外契约。
+#   ⚠️ 缺库只提示**不阻断**:本钩子正文无 mkdir/临时文件 ⇒ 不依赖 shellkit 的任何
+#      能力 ⇒ 缺库时快照逻辑照跑(仓内自测的变异副本就落在临时目录、按同目录探测
+#      必然落空 ⇒ 若此处 fail-closed,scripts/preupgrade-backup-selftest.sh 的
+#      **变异负对照会全体早退** ⇒ 判据失牙齿)。
+_sk_dir="$(dirname "$0")"
+_sk_lib=""
+for _sk_c in \
+    "${PB_SHELLKIT_POSIX:-}" \
+    "${_sk_dir}/shellkit-posix.sh" \
+    "${_sk_dir}/lib/shellkit-posix.sh" \
+    "/usr/lib/pigeonbox/shellkit-posix.sh"
+do
+    if [ -n "$_sk_c" ] && [ -r "$_sk_c" ]; then _sk_lib="$_sk_c"; break; fi
+done
+if [ -z "$_sk_lib" ]; then
+    log "缺 shellkit POSIX 子集（不阻断升级前快照）"
+else
+    # 落点是运行时探测出来的 ⇒ shellcheck 追不动,显式声明不追
+    # shellcheck source=/dev/null
+    . "$_sk_lib"
+fi
+
 # 解析库路径。候选顺序与 openwrt/pigeonbox.init 的 resolve_default_data_dir 同构,
 # 但**只看已存在的库**、且**不回填 UCI**(选址与固化是 init 的职责,钩子里做会产生
 # 与首次启动不一致的副作用;升级场景 UCI 早已固化)。

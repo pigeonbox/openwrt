@@ -7,12 +7,46 @@
 #
 # 高级配置:创建 /etc/pigeonbox/config.yaml 后自动生效(二进制 --config),
 # 适用于 S3/OIDC/联邦等 UCI 面未覆盖的项。
+#
+# shellcheck disable=SC2034  # USE_PROCD/START/STOP 是 rc.common 的外部契约(本文件内不引用)
+# shellcheck disable=SC3043  # `local`:busybox ash 支持(OpenWrt rc.common 脚本通行写法);POSIX 不保证,但设备侧就是 ash
+# shellcheck disable=SC2154  # beam_enabled/beam_port 由 config_get/config_get_bool 赋值,shellcheck 看不见
 
 USE_PROCD=1
 START=99
 STOP=15
 
 PROG=/usr/bin/pigeonbox
+
+# ── shellkit POSIX 子集（设备侧唯一可用的 shellkit 形态）──────────────────
+#   上游 shellkit 主库是 Bash 3.2+ 基线(数组/printf -v/local -n 等)在 busybox ash 上
+#   **根本解析不了**(不是运行报错,是脚本起不来)⇒ 设备侧只能用 POSIX 子集
+#   (lib/posix/shellkit-posix.sh,纯 POSIX sh 语法)。本仓副本随包装在
+#   /usr/lib/pigeonbox/shellkit-posix.sh(build-ipk.sh / build-apk.sh 安装)。
+#
+#   探测序：① 环境变量 PB_SHELLKIT_POSIX ② 脚本同目录 ③ 同目录 lib/ ④ 包内落点。
+#   ⚠️ rc.common 用 `.` **source** 本脚本 ⇒ `$0` 是 rc.common 的路径、不是本脚本的
+#      ⇒ 同目录(②③)落空 ⇒ 靠 ④ 包内落点命中。
+#   ⚠️ **缺失即退 5(fail-closed)**:装的是不完整的包 ⇒ 服务不许带着半个包起。
+#      退出码 5 会被 postinst 的「启动失败判红」接住(openwrt#198)⇒ 现场看得见。
+#   ⚠️ 退 5 之前**不能**用 shellkit 的 die/fail —— 那两个函数就在缺掉的那个库里。
+_sk_dir="$(dirname "$0")"
+_sk_lib=""
+for _sk_c in \
+    "${PB_SHELLKIT_POSIX:-}" \
+    "${_sk_dir}/shellkit-posix.sh" \
+    "${_sk_dir}/lib/shellkit-posix.sh" \
+    "/usr/lib/pigeonbox/shellkit-posix.sh"
+do
+    if [ -n "$_sk_c" ] && [ -r "$_sk_c" ]; then _sk_lib="$_sk_c"; break; fi
+done
+if [ -z "$_sk_lib" ]; then
+    echo "缺 shellkit POSIX 子集（装的是不完整的包）" >&2
+    exit 5
+fi
+# 落点是运行时探测出来的 ⇒ shellcheck 追不动,显式声明不追
+# shellcheck source=/dev/null
+. "$_sk_lib"
 
 # 默认数据目录自动选定(iStore 上架 review 建议,参考 istoreos-app-hub codeserver 的做法):
 #   0. 已有存量数据(/etc/pigeonbox/data 已存在)⇒ 沿用,绝不搬家(升级不丢数据;
@@ -69,7 +103,12 @@ start_service() {
 	config_get_bool beam_enabled beam enabled 1
 	config_get beam_port beam port 12348
 
-	mkdir -m 0755 -p "$data_dir"
+	# 目录创建走 shellkit 的 fs_ensure_dir(等价:已存在即成功、建父目录;不存在时
+	# mkdir -p 之后 chmod 0755 ⇒ 最终权限与原 `mkdir -m 0755 -p` 一致)。
+	# ⚠️ 失败**不中止**(原来的 mkdir 失败也只是继续往下走)⇒ 但必须留痕:
+	#    原来靠 mkdir 自己往 stderr 报错,换成 fs_ensure_dir 后要自己报,
+	#    否则「数据目录建不出来」会从可见变成静默。
+	fs_ensure_dir "$data_dir" 0755 || log_warn "数据目录创建失败: $data_dir"
 
 	procd_open_instance
 	procd_set_param command "$PROG"
@@ -97,6 +136,7 @@ start_service() {
 		[ -n "$redis_password" ] && procd_append_param env PB_REDIS_PASSWORD="$redis_password"
 	fi
 
+	# shellcheck disable=SC2086  # respawn 三元组按 procd 语义拆成三个参数 ⇒ 故意不加引号(保持原样)
 	procd_set_param respawn ${respawn_threshold:-3600} ${respawn_timeout:-5} ${respawn_retry:-0}
 	procd_set_param stdout 1
 	procd_set_param stderr 1
@@ -114,7 +154,8 @@ start_service() {
 			--config-file "$data_dir/p2pcweb.json" \
 			--out "$data_dir" \
 			--no-open
-		procd_set_param respawn ${respawn_threshold:-3600} ${respawn_timeout:-5} ${respawn_retry:-0}
+		# shellcheck disable=SC2086  # respawn 三元组按 procd 语义拆成三个参数 ⇒ 故意不加引号(保持原样)
+	procd_set_param respawn ${respawn_threshold:-3600} ${respawn_timeout:-5} ${respawn_retry:-0}
 		procd_set_param stdout 1
 		procd_set_param stderr 1
 		procd_close_instance
@@ -125,12 +166,17 @@ start_service() {
 	# ⚠️ **后台跑**:Box 与 p2pcweb 由 procd **异步**拉起 ⇒ 调用时刻可能早于就绪
 	#   ⇒ 脚本自己会等(最多 30s)⇒ 前台调用会阻塞服务启动。
 	# ⚠️ admin 口令来自 UCI(main admin_password)⇒ 空则脚本自动跳过(未建号场景)。
+	# ⚠️ **显式 `sh` 调预接线**(openwrt#215 的根因修复):OpenWrt **没有 bash** ⇒
+	#   直接执行会按脚本 shebang 找解释器 ⇒ 原 shebang 是 `#!/usr/bin/env bash`
+	#   ⇒ exec 失败(exit 127,实测 `env: can't execute 'bash'`)⇒ **出厂预接线在真机
+	#   静默空跑**(CI 只断言文件存在,从未执行过它)。现在脚本本体已是 POSIX sh
+	#   (`#!/bin/sh`),这里再显式 `sh` ⇒ 与 shebang 无关地保证是 POSIX shell。
 	if [ "$beam_enabled" = "1" ] && [ -x /usr/bin/prewire_beam_box ]; then
 		PB_ADMIN_PASSWORD="$admin_password" \
 		PB_SERVER_PORT="$port" \
 		PB_P2PCWEB_PORT="$beam_port" \
 		PB_DATA_PATH="$data_dir" \
-			nohup /usr/bin/prewire_beam_box >>/var/log/pigeonbox-prewire.log 2>&1 &
+			nohup sh /usr/bin/prewire_beam_box >>/var/log/pigeonbox-prewire.log 2>&1 &
 	fi
 }
 

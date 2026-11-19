@@ -3,6 +3,37 @@
 # 卸载不删数据:/etc/pigeonbox/ 保留,彻底清除请手动删除该目录
 [ -n "${IPKG_INSTROOT:-}" ] && exit 0
 
+# ── shellkit POSIX 子集（设备侧唯一可用的 shellkit 形态）──────────────────
+#   上游 shellkit 主库是 Bash 3.2+ 基线在 busybox ash 上**根本解析不了**
+#   ⇒ 设备侧只能用 POSIX 子集(lib/posix/shellkit-posix.sh,纯 POSIX sh 语法)。
+#   本仓副本随包装在 /usr/lib/pigeonbox/shellkit-posix.sh(build-ipk.sh 安装)。
+#
+#   探测序：① 环境变量 PB_SHELLKIT_POSIX ② 脚本同目录 ③ 同目录 lib/ ④ 包内落点。
+#   ⚠️ **本钩子刻意不 fail-closed(与 postinst/post-install 不同)**:prerm 跑在
+#      **新包文件落盘之前**(dpkg/opkg 语义:新包的 prerm 先跑、再解包新文件)
+#      ⇒ 从「还没带 POSIX 子集」的旧版本升级上来时,④ 号候选必然不存在
+#      ⇒ 若此时退 5,opkg 会**中止整个升级** ⇒ 存量用户全部升不动。
+#      本文件头已写明「**有意保持 exit 0**:prerm 非 0 会中止升级/卸载」⇒ 口径一致。
+#   ⚠️ 本钩子的唯一职责是「停服」,正文无 mkdir/临时文件 ⇒ 不依赖 shellkit 的任何
+#      能力 ⇒ 缺库只是提示,**不阻断**停服(阻断停服比缺库更糟)。
+_sk_dir="$(dirname "$0")"
+_sk_lib=""
+for _sk_c in \
+    "${PB_SHELLKIT_POSIX:-}" \
+    "${_sk_dir}/shellkit-posix.sh" \
+    "${_sk_dir}/lib/shellkit-posix.sh" \
+    "/usr/lib/pigeonbox/shellkit-posix.sh"
+do
+    if [ -n "$_sk_c" ] && [ -r "$_sk_c" ]; then _sk_lib="$_sk_c"; break; fi
+done
+if [ -z "$_sk_lib" ]; then
+    echo "pigeonbox: 缺 shellkit POSIX 子集（不阻断停服）" >&2
+else
+    # 落点是运行时探测出来的 ⇒ shellcheck 追不动,显式声明不追
+    # shellcheck source=/dev/null
+    . "$_sk_lib"
+fi
+
 # 停服失败必须可见(openwrt#200):此前 `stop 2>/dev/null` + 恒 exit 0 ⇒ 旧进程
 # 没停时没有任何信号(升级=旧进程持旧 inode 继续跑;卸载=文件删了进程还在跑、
 # 端口仍被占,用户看到「卸载了还在跑」)。⇒ 去掉 2>/dev/null 让 stop 自身报错进

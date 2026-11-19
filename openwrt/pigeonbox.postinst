@@ -14,6 +14,36 @@ fi
 
 [ -n "${IPKG_INSTROOT:-}" ] && exit 0
 
+# ── shellkit POSIX 子集（设备侧唯一可用的 shellkit 形态）──────────────────
+#   上游 shellkit 主库是 Bash 3.2+ 基线(数组/printf -v/local -n 等)在 busybox ash 上
+#   **根本解析不了**(不是运行报错,是脚本起不来)⇒ 设备侧只能用 POSIX 子集
+#   (lib/posix/shellkit-posix.sh,纯 POSIX sh 语法)。本仓副本随包装在
+#   /usr/lib/pigeonbox/shellkit-posix.sh(build-ipk.sh / build-apk.sh 安装)。
+#
+#   探测序：① 环境变量 PB_SHELLKIT_POSIX ② 脚本同目录 ③ 同目录 lib/ ④ 包内落点。
+#   ⚠️ **放在 IPKG_INSTROOT 早退之后**:离线镜像构建时包还没装进 rootfs,
+#      ④ 号候选不存在 ⇒ 放前面会让镜像构建直接失败。
+#   ⚠️ **缺失即退 5(fail-closed)**:装的是不完整的包 ⇒ 不许进入「启用+拉起」。
+#      opkg 会把 postinst 非 0 标记成安装失败 ⇒ 现场看得见(与下面的启动判红同一口径)。
+#   ⚠️ 退 5 之前**不能**用 shellkit 的 die/fail —— 那两个函数就在缺掉的那个库里。
+_sk_dir="$(dirname "$0")"
+_sk_lib=""
+for _sk_c in \
+    "${PB_SHELLKIT_POSIX:-}" \
+    "${_sk_dir}/shellkit-posix.sh" \
+    "${_sk_dir}/lib/shellkit-posix.sh" \
+    "/usr/lib/pigeonbox/shellkit-posix.sh"
+do
+    if [ -n "$_sk_c" ] && [ -r "$_sk_c" ]; then _sk_lib="$_sk_c"; break; fi
+done
+if [ -z "$_sk_lib" ]; then
+    echo "缺 shellkit POSIX 子集（装的是不完整的包）" >&2
+    exit 5
+fi
+# 落点是运行时探测出来的 ⇒ shellcheck 追不动,显式声明不追
+# shellcheck source=/dev/null
+. "$_sk_lib"
+
 # 升级前业务库快照(5.4.1)必须放在**拉起服务之前**:新二进制启动时会做迁移/建表,
 # 跑在 restart 之后拍的已经是升级后的库(等于没备份)。此刻 prerm 已 stop 过服务
 # ⇒ 库静止。脚本自身 best-effort、退出码恒 0(理由见其文件头:postinst 阶段 abort
